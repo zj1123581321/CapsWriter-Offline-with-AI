@@ -1,14 +1,13 @@
-# CapsWriter文件转录模块
+# CapsWriter 离线转录客户端
 
-这是一个从CapsWriter-Offline项目中提取出来的独立文件转录模块，专门用于将音视频文件转录为文本和字幕。
+CapsWriter离线转录客户端模块，提供音频文件转录功能。
 
-## 功能特点
+## 特性
 
-- 支持多种音视频格式（mp4, avi, wav等）
-- 生成SRT字幕文件、纯文本和JSON详细信息
-- 提供同步和异步API，方便集成到其他项目
-- 支持配置服务器地址和转录参数
-- 简单易用的命令行接口
+- 支持多种音频格式转录
+- 支持生成多种格式的转录结果（TXT、SRT、LRC、JSON）
+- 提供简单易用的API接口
+- 支持外部配置文件
 
 ## 安装依赖
 
@@ -16,100 +15,119 @@
 pip install -r requirements.txt
 ```
 
-## 使用方法
+## 快速开始
 
-### 1. 命令行使用
-
-```bash
-python transcriber.py 视频文件路径 [--server 服务器地址] [--port 端口号] [--verbose] [--no-srt]
-```
-
-例如：
-
-```bash
-python transcriber.py D:/Videos/test.mp4 --server 127.0.0.1 --port 6007 --verbose
-```
-
-### 2. 作为Python模块导入
-
-#### 基本用法
+### 简单使用
 
 ```python
-from Client_Only import transcribe, Config
+from Client_Only.api import initialize, transcribe
 
-# 配置服务器
-Config.server_addr = "127.0.0.1"
-Config.server_port = 6007
+# 初始化
+initialize()
 
-# 执行转录
-success, files = transcribe("D:/Videos/test.mp4")
-
+# 转录文件
+success, files = transcribe("path/to/your/audio.mp3")
 if success:
-    print(f"转录成功！生成了以下文件:")
-    for file in files:
-        print(f"  - {file}")
+    print(f"转录成功，生成的文件: {files}")
 else:
     print("转录失败")
 ```
 
-#### 通过参数配置
+### 使用自定义配置
 
 ```python
-from Client_Only import transcribe
+from Client_Only.api import initialize, update_config, transcribe
 
-# 通过参数配置
-success, files = transcribe(
-    "D:/Videos/test.mp4",
-    server_addr="127.0.0.1",
-    server_port=6007,
-    generate_json=False,  # 不生成JSON文件
-    generate_merge_txt=False  # 不生成合并文本
-)
+# 初始化
+initialize()
+
+# 更新配置
+config = {
+    "generate_txt": True,
+    "generate_srt": True,
+    "server_addr": "your_server_ip",
+    "server_port": 6016
+}
+update_config(config)
+
+# 转录文件
+success, files = transcribe("path/to/your/audio.mp3")
 ```
 
-#### 使用异步API
+### 使用配置文件
 
 ```python
-import asyncio
-from Client_Only import transcribe_async
+from Client_Only.api import initialize, transcribe
 
-async def main():
-    success, files = await transcribe_async(
-        "D:/Videos/test.mp4",
-        server_addr="127.0.0.1",
-        server_port=6007
-    )
-    print(f"转录{'成功' if success else '失败'}")
+# 从配置文件初始化
+initialize("path/to/your/config.json")
 
-# 运行异步函数
-asyncio.run(main())
+# 转录文件
+success, files = transcribe("path/to/your/audio.mp3")
 ```
 
-## 配置项
+## 配置选项
 
-可以通过`Config`类设置以下配置项：
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| server_addr | 字符串 | "100.89.110.76" | 服务器地址 |
+| server_port | 整数 | 6016 | 服务器端口 |
+| file_seg_duration | 整数 | 25 | 转录文件时分段长度（秒） |
+| file_seg_overlap | 整数 | 2 | 转录文件时分段重叠（秒） |
+| enable_hot_words | 布尔值 | True | 是否启用热词替换 |
+| generate_txt | 布尔值 | False | 是否生成纯文本文件 |
+| generate_merge_txt | 布尔值 | True | 是否生成合并文本（不分行） |
+| generate_srt | 布尔值 | False | 是否生成SRT字幕文件 |
+| generate_lrc | 布尔值 | False | 是否生成LRC歌词文件 |
+| generate_json | 布尔值 | False | 是否生成JSON详细信息 |
+| verbose | 布尔值 | True | 是否显示详细日志 |
 
-- `server_addr`: 服务器地址 (默认: "127.0.0.1")
-- `server_port`: 服务器端口 (默认: 6007)
-- `file_seg_duration`: 转录文件时分段长度 (默认: 25秒)
-- `file_seg_overlap`: 转录文件时分段重叠 (默认: 2秒)
-- `generate_txt`: 是否生成纯文本文件 (默认: True)
-- `generate_merge_txt`: 是否生成合并文本 (默认: True)
-- `generate_srt`: 是否生成SRT字幕文件 (默认: True)
-- `generate_json`: 是否生成JSON详细信息 (默认: True)
-- `verbose`: 是否显示详细日志 (默认: True)
+## API接口说明
 
-## 注意事项
+### initialize(config_path=None)
 
-- 使用前需要确保CapsWriter-Offline服务器已经启动
-- 需要安装ffmpeg并添加到系统PATH
-- 转录结果将保存在与输入文件相同的目录下
+初始化CapsWriter客户端。
+
+- **参数**:
+  - config_path: 配置文件路径，如果提供则从配置文件加载配置
+- **返回**:
+  - bool: 初始化是否成功
+
+### transcribe(file_path)
+
+转录文件的同步接口。
+
+- **参数**:
+  - file_path: 要转录的文件路径
+- **返回**:
+  - tuple: (bool成功状态, list生成的文件)
+
+### update_config(config_dict=None, config_path=None)
+
+更新配置。
+
+- **参数**:
+  - config_dict: 配置字典，直接更新配置类
+  - config_path: 配置文件路径，从文件加载配置
+- **返回**:
+  - bool: 更新是否成功
+
+### save_config(config_path)
+
+保存当前配置到文件。
+
+- **参数**:
+  - config_path: 配置文件保存路径
+- **返回**:
+  - bool: 保存是否成功
+
+### get_config()
+
+获取当前配置。
+
+- **返回**:
+  - dict: 当前配置的字典形式
 
 ## 示例
 
-请参考`example.py`文件中的示例代码，包括：
-
-1. 基本用法示例
-2. 使用参数覆盖配置
-3. 异步API使用示例
-4. 批量转录示例 
+详见 `example_usage.py` 文件中的使用示例。 
