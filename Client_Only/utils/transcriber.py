@@ -262,15 +262,38 @@ async def save_results(file_path, result):
             if srt_file:
                 generated_files.append(srt_file)
                 Cosmic.log(f"已生成字幕文件: {srt_file}")
+        
+        # 生成LRC歌词文件
+        if Config.generate_lrc:
+            # 确保生成json文件，用于LRC生成
+            need_remove_json = False
+            if not Config.generate_json and not temp_json_created:
+                with open(json_file, "w", encoding="utf-8") as f:
+                    json.dump({
+                        'timestamps': timestamps, 
+                        'tokens': tokens
+                    }, f, ensure_ascii=False)
+                need_remove_json = True
             
-            # 清理临时创建的中间文件
-            if temp_txt_created and os.path.exists(txt_file):
-                os.remove(txt_file)
-                Cosmic.log(f"已删除临时文本文件: {txt_file}", style="dim")
-                
-            if temp_json_created and os.path.exists(json_file):
+            lrc_file = generate_lrc_from_json(json_file)
+            if lrc_file:
+                generated_files.append(lrc_file)
+                Cosmic.log(f"已生成LRC歌词文件: {lrc_file}")
+            
+            # 如果是临时创建的JSON文件，且没有其他功能需要它，则删除
+            if need_remove_json and not Config.generate_json:
                 os.remove(json_file)
                 Cosmic.log(f"已删除临时JSON文件: {json_file}", style="dim")
+            
+        # 清理临时创建的中间文件
+        if temp_txt_created and os.path.exists(txt_file):
+            os.remove(txt_file)
+            Cosmic.log(f"已删除临时文本文件: {txt_file}", style="dim")
+            
+        if temp_json_created and os.path.exists(json_file) and not Config.generate_lrc:
+            # 只有当不需要生成LRC时才删除JSON文件
+            os.remove(json_file)
+            Cosmic.log(f"已删除临时JSON文件: {json_file}", style="dim")
         
         # 显示转录结果摘要
         if text:

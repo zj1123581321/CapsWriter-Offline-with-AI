@@ -2,12 +2,13 @@
 # coding: utf-8
 
 """
-LRC歌词/字幕生成工具
+LRC歌词文件生成工具
 """
 
 import json
-import math
+import re
 from pathlib import Path
+from datetime import timedelta
 
 def format_time_lrc(seconds):
     """
@@ -19,24 +20,15 @@ def format_time_lrc(seconds):
     返回:
         str: 格式化的时间字符串
     """
-    # 处理负数时间
-    if seconds < 0:
-        seconds = 0
-        
-    # 计算分钟和秒
-    minutes = math.floor(seconds / 60)
-    seconds_remainder = seconds % 60
-    centiseconds = math.floor((seconds_remainder - math.floor(seconds_remainder)) * 100)
-    
-    # 格式化为 [mm:ss.xx]
-    return f"[{minutes:02d}:{math.floor(seconds_remainder):02d}.{centiseconds:02d}]"
+    minutes, seconds = divmod(seconds, 60)
+    return f"[{int(minutes):02d}:{seconds:.2f}]"
 
 def generate_lrc_from_json(json_file):
     """
-    从JSON文件直接生成LRC字幕文件
+    从JSON文件生成LRC歌词文件
     
     参数:
-        json_file: JSON文件路径，包含时间戳和标记信息
+        json_file: JSON文件路径
         
     返回:
         str: 生成的LRC文件路径
@@ -46,54 +38,56 @@ def generate_lrc_from_json(json_file):
     
     # 检查文件是否存在
     if not json_path.exists():
-        print(f"错误: 找不到JSON文件 {json_path}")
+        print(f"错误: 找不到所需的文件 {json_path}")
         return None
     
-    # 读取时间戳和标记
+    # 读取JSON数据
     with open(json_path, 'r', encoding='utf-8') as f:
-        time_data = json.load(f)
+        data = json.load(f)
     
-    timestamps = time_data.get('timestamps', [])
-    tokens = time_data.get('tokens', [])
+    timestamps = data.get('timestamps', [])
+    tokens = data.get('tokens', [])
     
     if not timestamps or not tokens:
         print("错误: JSON文件中没有找到时间戳或标记")
         return None
     
-    # 创建LRC内容 - 为每个标记创建一个时间点
+    # 将标记按时间分段
+    # 每隔一定时间(3秒)生成一行歌词
+    time_groups = {}
+    current_group_time = None
+    current_group_text = ""
+    group_interval = 3.0  # 每3秒一组
+    
+    for token, time in zip(tokens, timestamps):
+        # 确定当前token所属的时间组
+        group_time = int(time / group_interval) * group_interval
+        
+        if current_group_time is None:
+            current_group_time = group_time
+            
+        if group_time == current_group_time:
+            current_group_text += token
+        else:
+            # 保存当前组并创建新组
+            if current_group_text.strip():  # 只保存非空文本
+                time_groups[current_group_time] = current_group_text.strip()
+            current_group_time = group_time
+            current_group_text = token
+    
+    # 保存最后一组
+    if current_group_text.strip():
+        time_groups[current_group_time] = current_group_text.strip()
+    
+    # 生成LRC内容
     lrc_lines = []
     
-    # 添加文件头信息
-    lrc_lines.append('[ti:自动转录字幕]')
-    lrc_lines.append('[ar:CapsWriter-Offline]')
-    lrc_lines.append('[al:自动生成]')
-    lrc_lines.append('[by:CapsWriter-LRC生成器]')
-    lrc_lines.append('')
-    
-    # 添加主要内容
-    current_line = ''
-    line_start_time = None
-    current_time = 0
-    char_threshold = 20  # 每行最多字符数，超过则换行
-    
-    for i, (token, timestamp) in enumerate(zip(tokens, timestamps)):
-        # 如果是第一个字符或需要换行
-        if current_line == '' or len(current_line) >= char_threshold:
-            if current_line:  # 如果不是空行，写入当前行
-                lrc_lines.append(f"{format_time_lrc(line_start_time)}{current_line}")
-            current_line = token
-            line_start_time = timestamp
-        else:
-            current_line += token
-        
-        current_time = timestamp
-    
-    # 添加最后一行
-    if current_line:
-        lrc_lines.append(f"{format_time_lrc(line_start_time)}{current_line}")
+    # 添加时间轴和文本
+    for time, text in sorted(time_groups.items()):
+        lrc_lines.append(f"{format_time_lrc(time)}{text}")
     
     # 写入LRC文件
     with open(lrc_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lrc_lines))
+        f.write("\n".join(lrc_lines))
     
     return lrc_path 
