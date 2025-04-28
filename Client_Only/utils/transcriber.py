@@ -21,6 +21,7 @@ from ..config import Config
 from .cosmic import Cosmic, console
 from .websocket_utils import check_websocket, close_websocket
 from .srt_generator import generate_srt_from_txt
+from .lrc_generator import generate_lrc_from_json
 
 async def check_file(file_path):
     """

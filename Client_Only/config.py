@@ -21,6 +21,7 @@ class Config:
     generate_txt = False        # 生成纯文本文件
     generate_merge_txt = False  # 生成合并文本（不分行）
     generate_srt = True        # 生成SRT字幕文件
+    generate_lrc = True       # 生成LRC歌词/字幕文件
     generate_json = False       # 生成JSON详细信息
     
     # 日志设置
