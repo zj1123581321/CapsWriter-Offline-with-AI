@@ -1,0 +1,108 @@
+# Python相关
+__pycache__/
+Client_Only/__pycache__/
+Client_Only/utils/__pycache__/
+util/__pycache__/
+
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.env/
+.venv/
+
+# IDE相关
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# 转录结果文件 - 排除转录结果但保留重要文件
+# 排除输出目录
+/output/
+/temp/
+Client_Only/output/
+Client_Only/temp/
+
+# 转录结果文件模式
+*_transcribed.json
+*_transcribed.txt
+*.merge.txt
+*_transcribed.srt
+
+# 音频和视频文件
+*.wav
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.m4s
+*.webm
+
+# 模型文件
+models/*
+!models/.gitkeep
+
+# 日志
+*.log
+logs/
+
+# 操作系统相关
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+._*
+.Spotlight-V100
+.Trashes
+
+# 配置文件备份
+*.bak
+*.backup
+*~
+
+# 测试和覆盖率
+.coverage
+.pytest_cache/
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# 特定于CapsWriter的文件
+# 如果有其他特定文件需要忽略，请在此处添加

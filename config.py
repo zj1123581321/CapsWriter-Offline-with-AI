@@ -4,7 +4,7 @@ from pathlib import Path
 
 # 服务端配置
 class ServerConfig:
-    addr = '0.0.0.0'
+    addr = '10.100.1.245'
     port = '6016'
 
     format_num = True  # 输出时是否将中文数字转为阿拉伯数字
@@ -14,7 +14,7 @@ class ServerConfig:
 
 # 客户端配置
 class ClientConfig:
-    addr = '127.0.0.1'          # Server 地址
+    addr = '10.100.1.245'          # Server 地址
     port = '6016'               # Server 端口
 
     shortcut     = 'caps lock'  # 控制录音的快捷键，默认是 CapsLock
