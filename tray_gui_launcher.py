@@ -23,6 +23,7 @@ from PIL import Image, ImageDraw
 import signal
 import time
 from datetime import datetime
+from progress_indicator import ProgressIndicator
 
 class CapsWriterGUI:
     def __init__(self):
@@ -42,6 +43,9 @@ class CapsWriterGUI:
         self.root = tk.Tk()
         self.setup_window()
         self.setup_widgets()
+        
+        # 创建进度指示器
+        self.progress_indicator = ProgressIndicator(parent=self.root)
         
         # 创建托盘图标
         self.tray_icon = None
@@ -101,6 +105,9 @@ class CapsWriterGUI:
         
         self.hide_btn = ttk.Button(button_frame, text="隐藏到托盘", command=self.hide_window)
         self.hide_btn.pack(side=tk.RIGHT, padx=(0, 5))
+        
+        self.progress_btn = ttk.Button(button_frame, text="进度提示", command=self.toggle_progress_indicator)
+        self.progress_btn.pack(side=tk.RIGHT, padx=(0, 5))
         
         self.exit_btn = ttk.Button(button_frame, text="退出程序", command=self.exit_application)
         self.exit_btn.pack(side=tk.RIGHT)
@@ -173,6 +180,8 @@ class CapsWriterGUI:
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("打开配置文件夹", self.open_config_folder),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem("进度提示窗口", self.toggle_progress_indicator),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("退出", self.exit_application)
             )
         
@@ -216,16 +225,22 @@ class CapsWriterGUI:
                     pystray.Menu.SEPARATOR,
                     pystray.MenuItem("打开配置文件夹", self.open_config_folder),
                     pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("进度提示窗口", self.toggle_progress_indicator),
+                    pystray.Menu.SEPARATOR,
                     pystray.MenuItem("退出", self.exit_application)
                 )
             
             self.tray_icon.menu = create_menu()
 
-    def log_message(self, message, level="info"):
+    def log_message(self, message, level="info", update_progress=True):
         """添加日志消息"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}\n"
         self.log_queue.put((formatted_message, level))
+        
+        # 同时更新进度指示器（可选，避免重复更新）
+        if update_progress and self.progress_indicator:
+            self.progress_indicator.update_from_log(message)
 
     def update_log_display(self):
         """更新日志显示"""
@@ -266,6 +281,10 @@ class CapsWriterGUI:
                 return
             
             self.log_message("正在启动客户端...", "info")
+            
+            # 重置进度指示器
+            if self.progress_indicator:
+                self.progress_indicator.reset()
             
             # 启动客户端进程
             self.client_process = subprocess.Popen(
@@ -315,6 +334,10 @@ class CapsWriterGUI:
             self.is_running = False
             self.update_ui_state()
             
+            # 隐藏进度指示器
+            if self.progress_indicator:
+                self.progress_indicator.hide()
+            
         except Exception as e:
             self.log_message(f"停止失败: {str(e)}", "error")
 
@@ -341,14 +364,23 @@ class CapsWriterGUI:
                 if line:
                     # 根据内容判断日志级别
                     line = line.strip()
+                    
+                    # 先更新进度指示器（直接用原始输出）
+                    if self.progress_indicator:
+                        # 添加调试输出
+                        if any(keyword in line for keyword in ['转录', 'AI校对', '校对']):
+                            print(f"[GUI DEBUG] 向进度指示器发送: {line}")
+                        self.progress_indicator.update_from_log(line)
+                    
+                    # 然后添加到GUI日志（不重复更新进度）
                     if "错误" in line or "ERROR" in line or "Exception" in line:
-                        self.log_message(line, "error")
+                        self.log_message(line, "error", update_progress=False)
                     elif "警告" in line or "WARNING" in line:
-                        self.log_message(line, "warning")
+                        self.log_message(line, "warning", update_progress=False)
                     elif "成功" in line or "SUCCESS" in line or "完成" in line:
-                        self.log_message(line, "success")
+                        self.log_message(line, "success", update_progress=False)
                     else:
-                        self.log_message(line, "info")
+                        self.log_message(line, "info", update_progress=False)
         except Exception as e:
             self.log_message(f"监控输出时出错: {str(e)}", "error")
 
@@ -412,6 +444,35 @@ class CapsWriterGUI:
             # self.hide_window()
             pass
 
+    def toggle_progress_indicator(self):
+        """切换进度指示器显示状态"""
+        if self.progress_indicator:
+            if self.progress_indicator.is_visible:
+                self.progress_indicator.hide()
+                self.log_message("进度提示窗口已隐藏", "info")
+            else:
+                # 显示窗口
+                self.progress_indicator.show()
+                self.log_message("进度提示窗口已显示", "info")
+
+    def test_progress_indicator(self):
+        """测试进度指示器功能"""
+        def run_test():
+            time.sleep(1)
+            self.progress_indicator.update_from_log("等待转录结果...")
+            time.sleep(2)
+            self.progress_indicator.update_from_log("转录进度: 5.20秒")
+            time.sleep(2)
+            self.progress_indicator.update_from_log("转录进度：12.5s")
+            time.sleep(2)
+            self.progress_indicator.update_from_log("转录完成！")
+            time.sleep(1)
+            self.progress_indicator.update_from_log("正在进行AI校对...")
+            time.sleep(3)
+            self.progress_indicator.update_from_log("AI校对：优化后的文本")
+        
+        threading.Thread(target=run_test, daemon=True).start()
+
     def open_config_folder(self):
         """打开配置文件夹"""
         try:
@@ -429,6 +490,10 @@ class CapsWriterGUI:
         
         if self.tray_icon:
             self.tray_icon.stop()
+            
+        # 关闭进度指示器
+        if self.progress_indicator:
+            self.progress_indicator.hide()
         
         self.root.quit()
         sys.exit(0)
