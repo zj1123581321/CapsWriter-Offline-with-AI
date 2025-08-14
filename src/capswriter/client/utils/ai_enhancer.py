@@ -8,6 +8,7 @@ import asyncio
 import time
 import json
 import logging
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from collections import deque
 import aiohttp
@@ -26,6 +27,7 @@ class AIEnhancer:
         """初始化AI增强器"""
         self.context_history = deque(maxlen=ClientConfig.ai_context_segments)
         self.session: Optional[ClientSession] = None
+        self.keywords: List[str] = []
         
         # 验证配置
         if not AIConfig.api_key:
@@ -34,6 +36,9 @@ class AIEnhancer:
         else:
             self.enabled = True
             logger.info(f"AI增强功能已启用，使用模型: {AIConfig.model}")
+            
+        # 加载专有名词
+        self._load_keywords()
     
     async def _get_session(self) -> ClientSession:
         """获取或创建HTTP会话"""
@@ -41,6 +46,32 @@ class AIEnhancer:
             timeout = ClientTimeout(total=AIConfig.timeout)
             self.session = ClientSession(timeout=timeout)
         return self.session
+    
+    def _load_keywords(self):
+        """加载专有名词文件"""
+        try:
+            # 获取项目根目录下的data/ai_ref_word.txt文件路径
+            # 当前文件: src/capswriter/client/utils/ai_enhancer.py
+            # 需要向上5层到达项目根目录
+            current_file = Path(__file__).resolve()  # 获取绝对路径
+            project_root = current_file.parent.parent.parent.parent.parent
+            keywords_file = project_root / "data" / "ai_ref_word.txt"
+            
+            if keywords_file.exists():
+                with open(keywords_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:
+                        # 按行分割，过滤空行和空白
+                        self.keywords = [line.strip() for line in content.splitlines() if line.strip()]
+                        logger.info(f"已加载 {len(self.keywords)} 个专有名词: {', '.join(self.keywords[:5])}{'...' if len(self.keywords) > 5 else ''}")
+                    else:
+                        logger.info("专有名词文件为空")
+            else:
+                logger.info(f"专有名词文件不存在: {keywords_file}")
+                
+        except Exception as e:
+            logger.warning(f"加载专有名词文件时发生异常: {str(e)}")
+            self.keywords = []
     
     async def close(self):
         """关闭HTTP会话"""
@@ -91,21 +122,38 @@ class AIEnhancer:
 
 校对完成后，只返回校对后的文本，不要任何额外的说明或标签。'''
 
-        if context:
-            prompt = f"""{base_prompt}
-
-参考上下文（前面的转录内容）：
-{context}
-
-当前需要校对的文本：
-{text}"""
-        else:
-            prompt = f"""{base_prompt}
-
-当前需要校对的文本：
-{text}"""
+        # 构建完整的prompt
+        prompt_parts = [base_prompt]
         
-        return prompt
+        # 添加专有名词信息
+        if self.keywords:
+            keywords_text = "、".join(self.keywords)
+            keywords_section = f"""
+专有名词校对指南：
+以下是用户的专有名词库，包含人名、品牌名、产品名等特殊词汇：
+{keywords_text}
+
+校对规则：
+1. 如果转录文本中出现与专有名词库中词汇发音相似或相近的内容，应优先使用专有名词库中的正确形式
+2. 特别注意同音字、形近字的替换（如：扑扑猫→噗噗猫）
+3. 专有名词应保持其独特性和准确性，不能随意更改
+4. 当不确定时，优先选择专有名词库中的标准形式"""
+            prompt_parts.append(keywords_section)
+        
+        # 添加上下文信息
+        if context:
+            context_section = f"""
+参考上下文（前面的转录内容）：
+{context}"""
+            prompt_parts.append(context_section)
+        
+        # 添加待校对文本
+        text_section = f"""
+当前需要校对的文本：
+{text}"""
+        prompt_parts.append(text_section)
+        
+        return "".join(prompt_parts)
     
     async def _make_api_request(self, prompt: str, retry_count: int = 0) -> Optional[str]:
         """发送API请求，包含重试和错误处理"""

@@ -53,6 +53,7 @@ dist/
 /temp/
 /scripts/output/
 /scripts/temp/
+data/ai_ref_word.txt
 
 # 转录结果文件模式
 *_transcribed.json
