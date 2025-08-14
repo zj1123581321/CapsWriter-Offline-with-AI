@@ -34,8 +34,8 @@ class CapsWriterGUI:
         # 窗口状态 - 必须在setup_tray之前初始化
         self.window_visible = True
         
-        # 设置项目根目录
-        self.project_root = Path(__file__).parent
+        # 设置项目根目录 - GUI脚本在gui子文件夹中，需要向上一级
+        self.project_root = Path(__file__).parent.parent
         self.client_script = self.project_root / "scripts" / "start_client.py"
         self.python_exe = self.project_root / "venv" / "Scripts" / "python.exe"
         
@@ -109,6 +109,9 @@ class CapsWriterGUI:
         self.progress_btn = ttk.Button(button_frame, text="进度提示", command=self.toggle_progress_indicator)
         self.progress_btn.pack(side=tk.RIGHT, padx=(0, 5))
         
+        self.test_colors_btn = ttk.Button(button_frame, text="测试颜色", command=self.test_log_colors)
+        self.test_colors_btn.pack(side=tk.RIGHT, padx=(0, 5))
+        
         self.exit_btn = ttk.Button(button_frame, text="退出程序", command=self.exit_application)
         self.exit_btn.pack(side=tk.RIGHT)
         
@@ -127,14 +130,69 @@ class CapsWriterGUI:
         )
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # 配置文本颜色
+        # 配置文本颜色 - 基础颜色
         self.log_text.tag_configure("info", foreground="blue")
         self.log_text.tag_configure("warning", foreground="orange")
         self.log_text.tag_configure("error", foreground="red")
         self.log_text.tag_configure("success", foreground="green")
         
+        # 配置专门的日志类型颜色
+        self.log_text.tag_configure("original_text", foreground="#8B4513", font=('Consolas', 9, 'italic'))  # 棕色，斜体
+        self.log_text.tag_configure("ai_corrected", foreground="#006400", font=('Consolas', 9, 'bold'))   # 深绿色，粗体
+        self.log_text.tag_configure("final_result", foreground="#4B0082", font=('Consolas', 9, 'bold'))   # 靛青色，粗体
+        self.log_text.tag_configure("task_info", foreground="#696969")                                    # 灰色
+        self.log_text.tag_configure("timing_info", foreground="#FF6347")                                 # 番茄红
+        self.log_text.tag_configure("ai_status", foreground="#FF8C00")                                   # 深橙色
+        
+        # 设置标签优先级，确保专门的标签优先于通用标签
+        tag_priority = ["info", "warning", "error", "success", "task_info", "timing_info", "ai_status", "original_text", "ai_corrected", "final_result"]
+        for i, tag in enumerate(tag_priority):
+            self.log_text.tag_raise(tag)
+            
+        # 验证标签配置
+        self.verify_tag_config()
+        
         # 启动日志更新定时器
         self.update_log_display()
+
+    def verify_tag_config(self):
+        """验证标签配置是否正确"""
+        test_tags = ["info", "original_text", "ai_corrected", "final_result", "error"]
+        for tag in test_tags:
+            try:
+                config = self.log_text.tag_cget(tag, "foreground")
+                print(f"[DEBUG] 标签 {tag} 的前景色: {config}")
+            except Exception as e:
+                print(f"[DEBUG] 获取标签 {tag} 配置失败: {e}")
+
+    def classify_log_message(self, message):
+        """智能分类日志消息，返回对应的颜色标签"""
+        # 去除时间戳，只分析内容
+        content = message.strip()
+        if '] ' in content:
+            content = content.split('] ', 1)[-1]
+        
+        # 根据内容模式进行分类
+        if content.startswith('原文：'):
+            return "original_text"
+        elif content.startswith('AI校对：'):
+            return "ai_corrected"
+        elif content.startswith('识别结果：'):
+            return "final_result"
+        elif content.startswith('任务标识：') or content.startswith('录音时长：'):
+            return "task_info"
+        elif content.startswith('转录时延：') or content.startswith('AI校对时长：'):
+            return "timing_info"
+        elif '正在进行AI校对' in content or 'AI校对中' in content:
+            return "ai_status"
+        elif "错误" in content or "ERROR" in content or "Exception" in content:
+            return "error"
+        elif "警告" in content or "WARNING" in content:
+            return "warning"  
+        elif "成功" in content or "SUCCESS" in content or "完成" in content or "已启动" in content:
+            return "success"
+        else:
+            return "info"
 
     def create_tray_icon(self):
         """创建托盘图标"""
@@ -181,6 +239,7 @@ class CapsWriterGUI:
                 pystray.MenuItem("打开配置文件夹", self.open_config_folder),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("进度提示窗口", self.toggle_progress_indicator),
+                pystray.MenuItem("测试日志颜色", self.test_log_colors),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("退出", self.exit_application)
             )
@@ -226,6 +285,7 @@ class CapsWriterGUI:
                     pystray.MenuItem("打开配置文件夹", self.open_config_folder),
                     pystray.Menu.SEPARATOR,
                     pystray.MenuItem("进度提示窗口", self.toggle_progress_indicator),
+                    pystray.MenuItem("测试日志颜色", self.test_log_colors),
                     pystray.Menu.SEPARATOR,
                     pystray.MenuItem("退出", self.exit_application)
                 )
@@ -248,15 +308,60 @@ class CapsWriterGUI:
             while not self.log_queue.empty():
                 message, level = self.log_queue.get_nowait()
                 
+                print(f"[DEBUG] 准备插入消息，级别: {level}, 内容: {message.strip()[:50]}...")
+                
                 self.log_text.config(state=tk.NORMAL)
-                self.log_text.insert(tk.END, message, level)
+                
+                # 使用专门的方法处理带标签的文本插入
+                self._insert_with_tag(message, level)
+                
                 self.log_text.see(tk.END)
                 self.log_text.config(state=tk.DISABLED)
+                
         except queue.Empty:
             pass
+        except Exception as e:
+            print(f"日志显示更新错误: {e}")
         
         # 每100ms更新一次
         self.root.after(100, self.update_log_display)
+
+    def _insert_with_tag(self, text, tag):
+        """插入文本并应用标签 - 使用最可靠的方法"""
+        
+        # 获取智能分类的标签 
+        classified_tag = self.classify_log_message(text) if tag == "info" else tag
+        
+        print(f"[DEBUG] 插入文本，原标签: {tag}, 分类后: {classified_tag}")
+        
+        try:
+            # 方法：使用insert的tags参数直接插入带标签的文本
+            # 这是最可靠的方法，能确保所有字符都带标签
+            self.log_text.insert(tk.END, text, classified_tag)
+            
+            print(f"[DEBUG] 使用insert tags参数成功插入文本")
+            
+        except Exception as e:
+            print(f"[DEBUG] insert tags方法失败: {e}，使用备用方案")
+            
+            # 备用方案1：标准的插入+标签应用
+            try:
+                start_pos = self.log_text.index(tk.END)
+                self.log_text.insert(tk.END, text)
+                end_pos = self.log_text.index(tk.END)
+                
+                # 调整结束位置
+                if text.endswith('\n'):
+                    end_pos = self.log_text.index(tk.END + "-1c")
+                
+                self.log_text.tag_add(classified_tag, start_pos, end_pos)
+                print(f"[DEBUG] 备用方案1成功: {start_pos} -> {end_pos}")
+                
+            except Exception as e2:
+                print(f"[DEBUG] 备用方案1失败: {e2}，使用最终方案")
+                
+                # 最终方案：简单插入，不保证颜色
+                self.log_text.insert(tk.END, text)
 
     def clear_log(self):
         """清空日志"""
@@ -372,15 +477,9 @@ class CapsWriterGUI:
                             print(f"[GUI DEBUG] 向进度指示器发送: {line}")
                         self.progress_indicator.update_from_log(line)
                     
-                    # 然后添加到GUI日志（不重复更新进度）
-                    if "错误" in line or "ERROR" in line or "Exception" in line:
-                        self.log_message(line, "error", update_progress=False)
-                    elif "警告" in line or "WARNING" in line:
-                        self.log_message(line, "warning", update_progress=False)
-                    elif "成功" in line or "SUCCESS" in line or "完成" in line:
-                        self.log_message(line, "success", update_progress=False)
-                    else:
-                        self.log_message(line, "info", update_progress=False)
+                    # 使用智能分类器决定颜色标签
+                    log_level = self.classify_log_message(line)
+                    self.log_message(line, log_level, update_progress=False)
         except Exception as e:
             self.log_message(f"监控输出时出错: {str(e)}", "error")
 
@@ -472,6 +571,46 @@ class CapsWriterGUI:
             self.progress_indicator.update_from_log("AI校对：优化后的文本")
         
         threading.Thread(target=run_test, daemon=True).start()
+
+    def test_log_colors(self):
+        """测试日志颜色显示效果"""
+        self.log_message("=== 开始日志颜色测试 ===", "info")
+        
+        # 模拟一个完整的转录过程日志，包含长文本测试换行颜色
+        test_logs = [
+            "任务标识：a7895658-7921-11f0-b3a6-7cb566c3b7a1",
+            "录音时长：4.55s", 
+            "正在进行AI校对...",
+            "原文：看上去还是 deu seek 的中文理解能力要强很多，特别是在处理中文语音识别的时候表现得非常出色，相比其他模型有明显的优势，这可能得益于其更好的中文语料训练和优化算法",
+            "AI校对：看上去还是 DeepSeek 的中文理解能力要强很多，特别是在处理中文语音识别的时候表现得非常出色，相比其他模型有明显的优势，这可能得益于其更好的中文语料训练和优化算法",
+            "转录时延：7.57s",
+            "AI校对时长：4.69s", 
+            "识别结果：看上去还是 DeepSeek 的中文理解能力要强很多，特别是在处理中文语音识别的时候表现得非常出色，相比其他模型有明显的优势，这可能得益于其更好的中文语料训练和优化算法",
+            "客户端启动成功",
+            "警告：检测到网络延迟，可能会影响转录速度和准确性，建议检查网络连接状态",
+            "错误：连接超时，无法连接到远程服务器，请检查网络设置和防火墙配置"
+        ]
+        
+        def add_test_logs():
+            for i, log in enumerate(test_logs):
+                time.sleep(0.5)  # 每条日志间隔0.5秒
+                # 使用智能分类器自动选择颜色
+                log_level = self.classify_log_message(log)
+                self.log_message(log, log_level, update_progress=False)
+            
+            # 最后显示颜色说明
+            time.sleep(1)
+            self.log_message("=== 颜色说明 ===", "info")
+            self.log_message("原文：棕色斜体", "original_text")
+            self.log_message("AI校对：深绿色粗体", "ai_corrected") 
+            self.log_message("识别结果：靛青色粗体", "final_result")
+            self.log_message("任务信息：灰色", "task_info")
+            self.log_message("时间统计：番茄红", "timing_info")
+            self.log_message("AI状态：深橙色", "ai_status")
+            self.log_message("=== 测试完成 ===", "success")
+        
+        # 在后台线程中运行，避免阻塞UI
+        threading.Thread(target=add_test_logs, daemon=True).start()
 
     def open_config_folder(self):
         """打开配置文件夹"""
