@@ -99,17 +99,22 @@ async def transcribe_recv(file: Path):
     original_text = text_merge
     
     # AI校对润色（如果启用）
+    ai_duration = 0
     if Config.ai_enhancement and text_merge:
         try:
             console.print('    [cyan]正在进行AI校对...')
+            ai_start_time = time.time()
             enhancer = await get_ai_enhancer()
             text_merge = await enhancer.enhance_text(text_merge)
+            ai_duration = time.time() - ai_start_time
+            
             if text_merge != original_text:
                 console.print(f'    [blue]原文：{original_text[:100]}...')
                 console.print(f'    [cyan]AI校对：{text_merge[:100]}...')
             else:
                 console.print('    [cyan]AI校对完成（无修改）')
         except Exception as e:
+            ai_duration = time.time() - ai_start_time if 'ai_start_time' in locals() else 0
             console.print(f'    [red]AI校对失败: {str(e)}')
             text_merge = original_text
     
@@ -132,5 +137,8 @@ async def transcribe_recv(file: Path):
     srt_from_txt.one_task(txt_filename)
 
     process_duration = message['time_complete'] - message['time_start']
-    console.print(f'\033[K    处理耗时：{process_duration:.2f}s')
+    console.print(f'\033[K    转录耗时：{process_duration:.2f}s')
+    if Config.ai_enhancement and ai_duration > 0:
+        console.print(f'    AI校对时长：{ai_duration:.2f}s')
+        console.print(f'    总处理时长：{process_duration + ai_duration:.2f}s')
     console.print(f'    识别结果：\n[green]{text_merge}')

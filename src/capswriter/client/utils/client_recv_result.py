@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 
 import keyboard
 import websockets
@@ -42,17 +43,22 @@ async def recv_result():
 
             # AI校对润色（如果启用）
             original_text = text
+            ai_duration = 0
             if Config.ai_enhancement and text:
                 try:
                     console.print('    [cyan]正在进行AI校对...')
+                    ai_start_time = time.time()
                     enhancer = await get_ai_enhancer()
                     text = await enhancer.enhance_text(text)
+                    ai_duration = time.time() - ai_start_time
+                    
                     if text != original_text:
                         console.print(f'    [blue]原文：{original_text}')
                         console.print(f'    [cyan]AI校对：{text}')
                     else:
                         console.print('    [cyan]AI校对完成（无修改）')
                 except Exception as e:
+                    ai_duration = time.time() - ai_start_time if 'ai_start_time' in locals() else 0
                     console.print(f'    [red]AI校对失败: {str(e)}')
                     text = original_text
 
@@ -68,6 +74,8 @@ async def recv_result():
 
             # 控制台输出
             console.print(f'    转录时延：{delay:.2f}s')
+            if Config.ai_enhancement and ai_duration > 0:
+                console.print(f'    AI校对时长：{ai_duration:.2f}s')
             console.print(f'    识别结果：[green]{text}')
             console.line()
 
