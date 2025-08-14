@@ -11,10 +11,10 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 
-path_zh = Path() / "hot-zh.txt"
-path_en = Path() / "hot-en.txt"
-path_rule = Path() / "hot-rule.txt"
-path_kwds = Path() / "keywords.txt"
+path_zh = Path() / "data" / "hot-zh.txt"
+path_en = Path() / "data" / "hot-en.txt"
+path_rule = Path() / "data" / "hot-rule.txt"
+path_kwds = Path() / "data" / "keywords.txt"
 
 
 def update_hot_zh():
@@ -78,7 +78,7 @@ def update_hot_all():
 
 def observe_hot():
     observer = Observer()
-    observer.schedule(HotHandler(), '.', recursive=False)
+    observer.schedule(HotHandler(), 'data', recursive=False)
     observer.start()
     return observer
 

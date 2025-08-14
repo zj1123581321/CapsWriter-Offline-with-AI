@@ -52,18 +52,18 @@ python scripts/start_client.py /path/to/audio/file.wav
 
 您可以通过编辑以下文件来自定义热词替换：
 
-- `hot-zh.txt`：中文热词
-- `hot-en.txt`：英文热词  
-- `hot-rule.txt`：替换规则
+- `data/hot-zh.txt`：中文热词
+- `data/hot-en.txt`：英文热词  
+- `data/hot-rule.txt`：替换规则
 
 文件格式示例：
 
 ```
-# hot-zh.txt
+# data/hot-zh.txt
 人工智能->AI
 机器学习->ML
 
-# hot-en.txt
+# data/hot-en.txt
 artificial intelligence->AI
 machine learning->ML
 ```
