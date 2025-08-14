@@ -1,23 +1,49 @@
-## CapsWriter-Offline
+# CapsWriter-Offline
 
 ![image-20240108115946521](assets/image-20240108115946521.png)  
 
-这是 `CapsWriter-Offline` ，一个 PC 端的语音输入、字幕转录工具。
+**一个完全离线的 PC 端语音输入和字幕转录工具**
 
-两个功能：
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
 
-1. 按下键盘上的 `大写锁定键`，录音开始，当松开 `大写锁定键` 时，就会识别你的录音，并将识别结果立刻输入
-2. 将音视频文件拖动到客户端打开，即可转录生成 srt 字幕
+## 主要功能
 
-视频教程：[CapsWriter-Offline 电脑端离线语音输入工具](https://www.bilibili.com/video/BV1tt4y1d75s/)  
+1. **实时语音输入**：按下 `Caps Lock` 键开始录音，松开后立即识别并输入结果
+2. **文件转录**：拖拽音视频文件即可生成 SRT 字幕
+3. **完全离线**：无需联网，保护隐私，支持无限时长录音
 
-## 特性
+视频教程：[CapsWriter-Offline 电脑端离线语音输入工具](https://www.bilibili.com/video/BV1tt4y1d75s/)
 
-1. 完全离线、无限时长、低延迟、高准确率、中英混输、自动阿拉伯数字、自动调整中英间隔
-2. 热词功能：可以在 `hot-en.txt hot-zh.txt hot-rule.txt` 中添加三种热词，客户端动态载入
-3. 日记功能：默认每次录音识别后，识别结果记录在 `年份/月份/日期.md` ，录音文件保存在 `年份/月份/assets` 
-4. 关键词日记：识别结果若以关键词开头，会被记录在 `年份/月份/关键词-日期.md`，关键词在 `keywords.txt` 中定义
-5. 转录功能：将音视频文件拖动到客户端打开，即可转录生成 srt 字幕
+## 核心特性
+
+- ✅ **完全离线运行** - 无需联网，保护数据隐私
+- ✅ **低延迟高准确率** - 优化的语音识别引擎
+- ✅ **中英混输支持** - 智能识别中英文混合语音
+- ✅ **热词自定义** - 支持动态热词替换和专业术语
+- ✅ **自动格式化** - 智能数字转换和中英文间距调整
+- ✅ **多种输出模式** - 支持直接输入、剪贴板和文件输出
+- ✅ **日记功能** - 自动记录语音识别历史
+- ✅ **跨平台支持** - Windows、macOS、Linux 全平台兼容
+
+## 项目结构
+
+```
+CapsWriter-Offline/
+├── src/                      # 源代码
+│   ├── capswriter/           # 主包
+│   │   ├── client/           # 客户端模块
+│   │   ├── server/           # 服务端模块
+│   │   ├── utils/            # 通用工具
+│   │   └── config.py         # 配置文件
+│   └── capswriter_client_only/  # 独立客户端
+├── docs/                     # 项目文档
+├── tests/                    # 测试文件
+├── scripts/                  # 启动脚本
+├── assets/                   # 资源文件
+└── requirements.txt          # 依赖文件
+```
 6. 服务端、客户端分离，可以服务多台客户端
 7. 编辑 `config.py` ，可以配置服务端地址、快捷键、录音开关……
 
