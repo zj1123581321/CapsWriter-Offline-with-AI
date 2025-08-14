@@ -11,6 +11,7 @@ from .client_rename_audio import rename_audio
 from .client_strip_punc import strip_punc
 from .client_write_md import write_md
 from .client_type_result import type_result
+from .ai_enhancer import get_ai_enhancer
 
 
 async def recv_result():
@@ -38,6 +39,22 @@ async def recv_result():
 
             # 热词替换
             text = hot_sub(text)
+
+            # AI校对润色（如果启用）
+            original_text = text
+            if Config.ai_enhancement and text:
+                try:
+                    console.print('    [cyan]正在进行AI校对...')
+                    enhancer = await get_ai_enhancer()
+                    text = await enhancer.enhance_text(text)
+                    if text != original_text:
+                        console.print(f'    [blue]原文：{original_text}')
+                        console.print(f'    [cyan]AI校对：{text}')
+                    else:
+                        console.print('    [cyan]AI校对完成（无修改）')
+                except Exception as e:
+                    console.print(f'    [red]AI校对失败: {str(e)}')
+                    text = original_text
 
             # 打字
             await type_result(text)

@@ -11,12 +11,14 @@ CapsWriter Offline 是一个支持离线运行的语音转写工具，提供了�
 - **多平台支持**：兼容 Windows、macOS 和 Linux
 - **热词替换**：支持自定义热词和替换规则
 - **多种输出格式**：支持文本、SRT字幕等格式
+- **AI文本校对**：可选的AI驱动文本校对和润色功能
 
 ## 快速导航
 
 - [安装指南](installation.md)
 - [快速开始](quickstart.md)
 - [系统架构](architecture.md)
+- [AI文本校对功能](ai-enhancement.md)
 
 ## 项目结构
 

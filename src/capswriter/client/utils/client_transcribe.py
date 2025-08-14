@@ -19,6 +19,7 @@ from ...utils import srt_from_txt
 from .client_cosmic import console, Cosmic
 from .client_check_websocket import check_websocket
 from ...config import ClientConfig as Config
+from .ai_enhancer import get_ai_enhancer
 
 
 
@@ -95,6 +96,23 @@ async def transcribe_recv(file: Path):
 
     # 解析结果
     text_merge = message['text']
+    original_text = text_merge
+    
+    # AI校对润色（如果启用）
+    if Config.ai_enhancement and text_merge:
+        try:
+            console.print('    [cyan]正在进行AI校对...')
+            enhancer = await get_ai_enhancer()
+            text_merge = await enhancer.enhance_text(text_merge)
+            if text_merge != original_text:
+                console.print(f'    [blue]原文：{original_text[:100]}...')
+                console.print(f'    [cyan]AI校对：{text_merge[:100]}...')
+            else:
+                console.print('    [cyan]AI校对完成（无修改）')
+        except Exception as e:
+            console.print(f'    [red]AI校对失败: {str(e)}')
+            text_merge = original_text
+    
     text_split = re.sub('[，。？]', '\n', text_merge)
     timestamps = message['timestamps']
     tokens = message['tokens']
@@ -115,4 +133,4 @@ async def transcribe_recv(file: Path):
 
     process_duration = message['time_complete'] - message['time_start']
     console.print(f'\033[K    处理耗时：{process_duration:.2f}s')
-    console.print(f'    识别结果：\n[green]{message["text"]}')
+    console.print(f'    识别结果：\n[green]{text_merge}')

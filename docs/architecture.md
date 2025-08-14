@@ -11,11 +11,14 @@ graph TB
     B --> D[文本后处理]
     A --> E[音频采集]
     A --> F[快捷键监听]
+    A --> K[AI校对润色]
     A --> G[结果输出]
     
     C --> H[模型文件]
     D --> I[热词替换]
     D --> J[格式化处理]
+    K --> L[OpenAI API]
+    K --> M[上下文管理]
 ```
 
 ## 核心组件
@@ -27,6 +30,7 @@ graph TB
 - **音频采集**：通过麦克风或音频文件获取音频数据
 - **快捷键监听**：监听用户定义的快捷键操作
 - **WebSocket 通信**：与服务端建立实时通信连接
+- **AI文本校对**：可选的AI驱动文本校对和润色
 - **结果输出**：将识别结果输出到用户界面或文件
 
 #### 主要模块：
@@ -38,6 +42,7 @@ graph TB
   - `client_send_audio.py`：音频发送
   - `client_recv_result.py`：结果接收
   - `client_cosmic.py`：全局状态管理
+  - `ai_enhancer.py`：AI文本校对和润色
 
 ### 2. 服务端 (Server)
 
@@ -88,6 +93,7 @@ sequenceDiagram
     participant C as 客户端
     participant S as 服务端
     participant E as 识别引擎
+    participant AI as AI校对器
     
     U->>C: 按下快捷键
     C->>C: 开始录音
@@ -96,7 +102,13 @@ sequenceDiagram
     S->>E: 调用识别引擎
     E->>S: 返回识别结果
     S->>S: 文本后处理
-    S->>C: 发送最终结果
+    S->>C: 发送转录结果
+    alt AI功能已启用
+        C->>AI: 发送转录文本
+        AI->>AI: 构建上下文
+        AI->>AI: 调用OpenAI API
+        AI->>C: 返回校对结果
+    end
     C->>U: 输出到界面
 ```
 

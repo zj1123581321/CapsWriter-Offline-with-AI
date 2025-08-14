@@ -1,5 +1,12 @@
 from collections.abc import Iterable
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# 加载.env文件（如果存在）
+env_file = Path(__file__).parent.parent.parent / '.env'
+if env_file.exists():
+    load_dotenv(env_file)
 
 
 # 服务端配置
@@ -41,6 +48,10 @@ class ClientConfig:
     hot_rule = True             # 是否启用自定义规则替换，自定义规则存储在 hot_rule.txt 文件里
     hot_kwd  = True             # 是否启用关键词日记功能，自定义关键词存储在 keyword.txt 文件里
 
+    # AI校对相关配置
+    ai_enhancement = True      # 是否启用AI校对润色功能
+    ai_context_segments = 5     # 记录前序转录结果的段数，用于提供上下文
+
     mic_seg_duration = 15           # 麦克风听写时分段长度：15秒
     mic_seg_overlap = 2             # 麦克风听写时分段重叠：2秒
 
@@ -63,5 +74,22 @@ class ParaformerArgs:
     feature_dim = 80
     decoding_method = 'greedy_search'
     debug = False
+
+
+# AI增强配置
+class AIConfig:
+    # 默认配置，可通过环境变量覆盖
+    base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
+    model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+    api_key = os.getenv('OPENAI_API_KEY', '')
+    
+    # 重试配置
+    max_retries = 3
+    base_delay = 1.0  # 基础延迟时间（秒）
+    max_delay = 60.0  # 最大延迟时间（秒）
+    
+    # 请求配置
+    timeout = 30.0  # 请求超时时间（秒）
+    max_tokens = 2048  # 最大返回token数
 
 
