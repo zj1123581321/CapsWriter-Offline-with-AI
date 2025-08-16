@@ -9,6 +9,7 @@ from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from .client_send_audio import send_audio
 from ...utils.my_status import Status
+from datetime import datetime
 
 
 task = asyncio.Future()
@@ -48,6 +49,10 @@ def launch_task():
 
     # 打印动画：正在录音
     status.start()
+    
+    # 输出录音开始日志，供进度指示器监测
+    current_time = datetime.now().strftime("[%H:%M:%S]")
+    console.print(f"{current_time} 开始录音")
 
     # 启动识别任务
     task = asyncio.run_coroutine_threadsafe(
@@ -71,6 +76,10 @@ def finish_task():
     # 通知停止录音，关掉滚动条
     Cosmic.on = False
     status.stop()
+    
+    # 输出录音结束日志，供进度指示器监测
+    current_time = datetime.now().strftime("[%H:%M:%S]")
+    console.print(f"{current_time} 录音结束")
 
     # 通知结束任务
     asyncio.run_coroutine_threadsafe(
