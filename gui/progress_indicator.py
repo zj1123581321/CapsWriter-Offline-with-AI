@@ -10,6 +10,7 @@ from tkinter import ttk
 import re
 from datetime import datetime
 import threading
+import math
 from enum import Enum
 
 class ProcessStage(Enum):
@@ -64,8 +65,8 @@ class ProgressIndicator:
         else:
             self.window = tk.Toplevel(self.parent)
             
-        self.window.title("CapsWriter")
-        self.window.geometry("280x120")
+        self.window.title("")
+        self.window.geometry("120x40")
         self.window.resizable(False, False)
         
         # 彻底的无焦点设置
@@ -84,59 +85,37 @@ class ProgressIndicator:
         
         # 窗口位置 - 屏幕右上角
         self.window.geometry("+{}+{}".format(
-            self.window.winfo_screenwidth() - 300, 50
+            self.window.winfo_screenwidth() - 140, 50
         ))
         
-        # 创建主框架 - 为无边框窗口添加视觉边框
-        main_frame = tk.Frame(
-            self.window, 
-            bg='#f0f0f0', 
-            relief='solid', 
-            borderwidth=1, 
-            padx=10, 
-            pady=10
+        # 创建主画布 - 极简黑白风格
+        self.main_canvas = tk.Canvas(
+            self.window,
+            bg='#2a2a2a',
+            highlightthickness=0,
+            relief='flat'
         )
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        self.main_canvas.pack(fill=tk.BOTH, expand=True)
         
-        # 状态标签 - 使用tk.Label以便设置背景色
-        self.status_label = tk.Label(
-            main_frame, 
-            text="等待处理...", 
-            font=('Arial', 10, 'bold'),
-            bg='#f0f0f0',
-            fg='black'
-        )
-        self.status_label.pack(pady=(0, 8))
+        # 设置圆角边框
+        self.window.attributes('-alpha', 0.95)
         
-        # 进度条
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(
-            main_frame,
-            mode='determinate',
-            variable=self.progress_var,
-            length=240
-        )
-        self.progress_bar.pack(pady=(0, 8), fill=tk.X)
+        # 移除所有标签，改用canvas绘制
         
-        # 详细信息标签
-        self.detail_label = tk.Label(
-            main_frame,
-            text="",
-            font=('Arial', 8),
-            fg='gray',
-            bg='#f0f0f0'
-        )
-        self.detail_label.pack()
+        # 动画相关变量
+        self._recording_wave_offset = 0
+        self._recording_time = 0
+        self._icon_pulse = 0
         
-        # 时间信息标签
-        self.time_label = tk.Label(
-            main_frame,
-            text="",
-            font=('Arial', 7),
-            fg='gray',
-            bg='#f0f0f0'
-        )
-        self.time_label.pack(pady=(3, 0))
+        # 为了兼容性，创建虚拟属性
+        self.progress_var = type('MockVar', (), {'set': lambda x: None, 'get': lambda: 0})()
+        self.status_label = type('MockLabel', (), {'config': lambda **kwargs: None})()
+        self.detail_label = type('MockLabel', (), {'config': lambda **kwargs: None})()
+        self.time_label = type('MockLabel', (), {'config': lambda **kwargs: None})()
+        
+        # 移除详细信息标签
+        
+        # 移除时间信息标签
         
         # 由于使用了 overrideredirect，需要手动添加关闭功能
         # 右键点击窗口隐藏
@@ -145,15 +124,7 @@ class ProgressIndicator:
         
         self.window.bind("<Button-3>", on_right_click)  # 右键隐藏
         
-        # 添加视觉上的关闭提示
-        close_btn = tk.Label(
-            main_frame,
-            text="右键隐藏",
-            font=('Arial', 7),
-            fg='#999999',
-            bg='#f0f0f0'
-        )
-        close_btn.pack(anchor=tk.E, pady=(3, 0))
+        # 移除关闭提示
         
         # 初始隐藏窗口
         self.window.withdraw()
@@ -196,7 +167,7 @@ class ProgressIndicator:
                 
                 # 确保窗口位置正确
                 self.window.geometry("+{}+{}".format(
-                    self.window.winfo_screenwidth() - 300, 50
+                    self.window.winfo_screenwidth() - 140, 50
                 ))
                 
                 print("[DEBUG] 无焦点进度窗口已显示")
@@ -312,63 +283,178 @@ class ProgressIndicator:
         print(f"[DEBUG] 所有模式都未匹配")
         return None
 
+    def _draw_status_indicator(self, stage=None):
+        """绘制状态指示器"""
+        self.main_canvas.delete("all")
+        canvas_width = self.main_canvas.winfo_width()
+        canvas_height = self.main_canvas.winfo_height()
+        
+        if canvas_width <= 1:  # 画布还未初始化
+            self.window.after(50, lambda: self._draw_status_indicator(stage))
+            return
+        
+        center_x = canvas_width // 2
+        center_y = canvas_height // 2
+        
+        if stage == ProcessStage.RECORDING:
+            # 录音状态：白色波浪动画
+            self._draw_wave_animation(canvas_width, canvas_height)
+        elif stage == ProcessStage.TRANSCRIBING:
+            # 转录状态：旋转的圆点
+            self._draw_transcribe_icon(center_x, center_y)
+        elif stage == ProcessStage.AI_PROOFREADING:
+            # AI校对状态：脉冲圆圈
+            self._draw_ai_icon(center_x, center_y)
+        elif stage == ProcessStage.COMPLETED:
+            # 完成状态：对勾
+            self._draw_check_icon(center_x, center_y)
+        else:
+            # 默认状态：静止圆点
+            self._draw_idle_icon(center_x, center_y)
+
+    def _draw_wave_animation(self, canvas_width, canvas_height):
+        """绘制录音状态的白色波浪动画"""
+        self._recording_time += 0.15
+        
+        # 绘制3个白色波浪条
+        bar_count = 3
+        bar_width = 3
+        spacing = 8
+        start_x = (canvas_width - (bar_count * bar_width + (bar_count - 1) * spacing)) / 2
+        
+        for i in range(bar_count):
+            # 计算每个条的高度（波浪效果）
+            wave_phase = self._recording_time * 3 + i * 0.8
+            height_factor = abs(math.sin(wave_phase)) * 0.7 + 0.3  # 0.3 到 1.0
+            bar_height = max(4, canvas_height * height_factor * 0.6)
+            
+            x = start_x + i * (bar_width + spacing)
+            y = (canvas_height - bar_height) / 2
+            
+            # 绘制白色圆角条
+            self.main_canvas.create_rectangle(
+                x, y, x + bar_width, y + bar_height,
+                fill='white', outline='', width=0
+            )
+
+    def _draw_transcribe_icon(self, center_x, center_y):
+        """绘制转录状态图标（旋转的点）"""
+        self._icon_pulse += 0.2
+        
+        # 绘制3个旋转的点
+        for i in range(3):
+            angle = self._icon_pulse + i * (2 * math.pi / 3)
+            radius = 8
+            x = center_x + radius * math.cos(angle)
+            y = center_y + radius * math.sin(angle)
+            
+            self.main_canvas.create_oval(
+                x - 2, y - 2, x + 2, y + 2,
+                fill='white', outline=''
+            )
+
+    def _draw_ai_icon(self, center_x, center_y):
+        """绘制AI校对状态图标（脉冲圆圈）"""
+        self._icon_pulse += 0.3
+        
+        # 脉冲效果
+        pulse_factor = abs(math.sin(self._icon_pulse)) * 0.4 + 0.6
+        radius = 8 * pulse_factor
+        
+        # 绘制脉冲圆圈
+        self.main_canvas.create_oval(
+            center_x - radius, center_y - radius,
+            center_x + radius, center_y + radius,
+            outline='white', width=2, fill=''
+        )
+        
+        # 中心点
+        self.main_canvas.create_oval(
+            center_x - 2, center_y - 2,
+            center_x + 2, center_y + 2,
+            fill='white', outline=''
+        )
+
+    def _draw_check_icon(self, center_x, center_y):
+        """绘制完成状态图标（对勾）"""
+        # 绘制对勾
+        points = [
+            center_x - 6, center_y,
+            center_x - 2, center_y + 4,
+            center_x + 6, center_y - 4
+        ]
+        self.main_canvas.create_line(
+            points, fill='white', width=3, 
+            capstyle='round', joinstyle='round'
+        )
+
+    def _draw_idle_icon(self, center_x, center_y):
+        """绘制空闲状态图标（静止圆点）"""
+        self.main_canvas.create_oval(
+            center_x - 4, center_y - 4,
+            center_x + 4, center_y + 4,
+            fill='white', outline=''
+        )
+
+    def _draw_rounded_rect(self, canvas, x1, y1, x2, y2, radius, color):
+        """绘制圆角矩形"""
+        if x2 - x1 < 2 * radius:
+            radius = (x2 - x1) / 2
+        if y2 - y1 < 2 * radius:
+            radius = (y2 - y1) / 2
+            
+        points = []
+        # 左上角
+        points.extend([x1 + radius, y1])
+        # 右上角
+        points.extend([x2 - radius, y1])
+        points.extend([x2, y1])
+        points.extend([x2, y1 + radius])
+        # 右下角
+        points.extend([x2, y2 - radius])
+        points.extend([x2, y2])
+        points.extend([x2 - radius, y2])
+        # 左下角
+        points.extend([x1 + radius, y2])
+        points.extend([x1, y2])
+        points.extend([x1, y2 - radius])
+        # 回到左上角
+        points.extend([x1, y1 + radius])
+        points.extend([x1, y1])
+        points.extend([x1 + radius, y1])
+        
+        canvas.create_polygon(points, fill=color, outline="", smooth=True)
+
+    def _draw_gradient_rect(self, canvas, x1, y1, x2, y2, color1, color2, radius):
+        """绘制渐变圆角矩形（简化版）"""
+        # 简化实现，使用单色
+        self._draw_rounded_rect(canvas, x1, y1, x2, y2, radius, color1)
+
     def _start_recording(self):
         """开始录音阶段"""
-        print("[DEBUG] 开始录音阶段，显示录音进度")
+        print("[DEBUG] 开始录音阶段")
         self.current_stage = ProcessStage.RECORDING
         self.start_time = datetime.now()
-        self.progress_var.set(0)
-        
-        self.status_label.config(text="🎙️ 正在录音...", fg='red')
-        self.detail_label.config(text="按住 Caps Lock 键录音")
-        self.time_label.config(text="")
+        self._recording_time = 0
         
         # 确保窗口显示
         self.show()
         
-        # 开始录音进度动画
+        # 开始录音动画
         self._animate_recording_progress()
     
     def _animate_recording_progress(self):
-        """录音进度动画 - 呼吸灯效果"""
+        """录音动画 - 白色波浪效果"""
         if self.current_stage == ProcessStage.RECORDING:
-            current = self.progress_var.get()
-            # 创建呼吸灯效果：0-100-0循环
-            if not hasattr(self, '_recording_direction'):
-                self._recording_direction = 1
-            
-            new_value = current + (self._recording_direction * 5)
-            if new_value >= 100:
-                new_value = 100
-                self._recording_direction = -1
-            elif new_value <= 0:
-                new_value = 0
-                self._recording_direction = 1
-                
-            self.progress_var.set(new_value)
-            
-            # 更新录音时长
-            if self.start_time:
-                elapsed = (datetime.now() - self.start_time).total_seconds()
-                self.time_label.config(text=f"录音时长: {elapsed:.1f}秒")
-            
-            self.window.after(100, self._animate_recording_progress)
+            # 绘制波浪动画
+            self._draw_status_indicator(ProcessStage.RECORDING)
+            self.window.after(80, self._animate_recording_progress)
     
     def _stop_recording(self):
         """停止录音"""
         if self.current_stage == ProcessStage.RECORDING:
             print("[DEBUG] 停止录音，准备转录")
-            # 重置录音动画方向
-            if hasattr(self, '_recording_direction'):
-                delattr(self, '_recording_direction')
-            
-            self.progress_var.set(25)  # 录音完成是整体进度的25%
-            self.status_label.config(text="📝 准备转录...", fg='blue')
-            self.detail_label.config(text="正在处理录音数据...")
-            
-            if self.start_time:
-                elapsed = (datetime.now() - self.start_time).total_seconds()
-                self.time_label.config(text=f"录音时长: {elapsed:.1f}秒")
+            self._draw_status_indicator(None)  # 显示默认状态
     
     def start_recording_manually(self):
         """手动开始录音状态 - 供外部调用"""
@@ -382,95 +468,73 @@ class ProgressIndicator:
         """开始转录阶段"""
         print("[DEBUG] 开始转录阶段")
         self.current_stage = ProcessStage.TRANSCRIBING
-        # 如果不是从录音状态过来的，重新设置开始时间
+        self._icon_pulse = 0
+        
         if self.start_time is None:
             self.start_time = datetime.now()
-            self.progress_var.set(0)
-        else:
-            # 从录音状态过来，保持当前进度
-            if self.progress_var.get() < 25:
-                self.progress_var.set(25)
-        
-        self.status_label.config(text="📝 正在转录...", fg='blue')
-        self.detail_label.config(text="正在处理音频数据")
         
         # 确保窗口显示
         self.show()
+        
+        # 开始转录动画
+        self._animate_transcribe_progress()
 
     def _update_transcribe_progress(self, duration):
         """更新转录进度"""
         if self.current_stage == ProcessStage.TRANSCRIBING:
-            # 这里可以根据音频总长度计算百分比，暂时用时长显示
-            self.detail_label.config(text=f"已处理: {duration:.1f} 秒")
             self.last_progress = duration
-            
-            # 估算进度百分比（假设处理速度）
-            estimated_progress = min(duration / 60 * 100, 90)  # 最多90%，留10%给最终处理
-            self.progress_var.set(estimated_progress)
+            # 继续显示转录动画
 
     def _transcribe_complete(self):
         """转录完成"""
         if self.current_stage == ProcessStage.TRANSCRIBING:
-            self.progress_var.set(60)  # 转录完成是整体进度的60%
-            self.detail_label.config(text="转录完成，准备AI校对...")
-            
-            if self.start_time:
-                elapsed = (datetime.now() - self.start_time).total_seconds()
-                self.time_label.config(text=f"总用时: {elapsed:.1f}秒")
+            self._draw_status_indicator(None)  # 显示默认状态
 
     def _start_ai_proofreading(self):
         """开始AI校对阶段"""
         print("[DEBUG] 开始AI校对阶段")
         self.current_stage = ProcessStage.AI_PROOFREADING
-        current_progress = self.progress_var.get()
-        if current_progress < 70:
-            self.progress_var.set(70)
-        
-        self.status_label.config(text="🤖 AI校对中...", fg='orange')
-        self.detail_label.config(text="正在优化和校对文本...")
+        self._icon_pulse = 0
         
         # 确保窗口显示
         self.show()
         
-        # 模拟AI处理进度动画
+        # 开始AI动画
         self._animate_ai_progress()
 
     def _animate_ai_progress(self):
-        """AI校对进度动画"""
+        """AI校对动画"""
         if self.current_stage == ProcessStage.AI_PROOFREADING:
-            current = self.progress_var.get()
-            if current < 95:
-                self.progress_var.set(current + 1)
-                self.window.after(800, self._animate_ai_progress)
+            self._draw_status_indicator(ProcessStage.AI_PROOFREADING)
+            self.window.after(150, self._animate_ai_progress)
+            
+    def _animate_transcribe_progress(self):
+        """转录动画"""
+        if self.current_stage == ProcessStage.TRANSCRIBING:
+            self._draw_status_indicator(ProcessStage.TRANSCRIBING)
+            self.window.after(100, self._animate_transcribe_progress)
 
     def _ai_complete(self):
         """AI校对完成"""
         if self.current_stage == ProcessStage.AI_PROOFREADING:
             self.current_stage = ProcessStage.COMPLETED
-            self.progress_var.set(100)
+            self._draw_status_indicator(ProcessStage.COMPLETED)
             
-            self.status_label.config(text="✅ 处理完成", fg='green')
-            self.detail_label.config(text="AI校对已完成，文本已优化")
-            
-            # 1.5秒后自动隐藏
-            threading.Timer(0.5, self._auto_hide_after_completion).start()
+            # 0.8秒后自动隐藏
+            threading.Timer(0.8, self._auto_hide_after_completion).start()
 
     def _ai_failed(self):
         """AI校对失败"""
         self.current_stage = ProcessStage.FAILED
-        self.status_label.config(text="⚠️ AI校对失败", fg='red')
-        self.detail_label.config(text="转录已完成，但AI校对遇到问题")
+        self._draw_status_indicator(None)  # 显示默认状态
         
-        # 3秒后自动隐藏
-        threading.Timer(3.0, self._auto_hide_after_completion).start()
+        # 2秒后自动隐藏
+        threading.Timer(2.0, self._auto_hide_after_completion).start()
 
     def _show_completion_stats(self, transcribe_duration=None, ai_duration=None):
         """显示完成统计信息"""
-        if transcribe_duration:
-            stats = f"总用时: {transcribe_duration:.1f}秒"
-            if ai_duration:
-                stats += f" (转录: {transcribe_duration:.1f}s, AI: {ai_duration:.1f}s)"
-            self.time_label.config(text=stats)
+        # 精简版本不显示统计信息
+        pass
 
     def _auto_hide_after_completion(self):
         """完成后自动隐藏"""
@@ -483,12 +547,10 @@ class ProgressIndicator:
         self.current_stage = ProcessStage.IDLE
         self.start_time = None
         self.last_progress = 0.0
-        self.progress_var.set(0)
+        self._recording_time = 0
+        self._icon_pulse = 0
         
-        self.status_label.config(text="等待处理...", fg='black')
-        self.detail_label.config(text="")
-        self.time_label.config(text="")
-        
+        self._draw_status_indicator(None)
         self.hide()
 
 # 测试代码
@@ -507,14 +569,11 @@ if __name__ == "__main__":
             
             # 模拟转录阶段
             root.after(4000, lambda: indicator.update_from_log("等待转录结果..."))
-            root.after(5000, lambda: indicator.update_from_log("转录进度: 5.2s"))
-            root.after(6000, lambda: indicator.update_from_log("转录进度: 15.8s"))
             root.after(7000, lambda: indicator.update_from_log("转录完成"))
             
             # 模拟AI校对阶段
             root.after(8000, lambda: indicator.update_from_log("正在进行AI校对..."))
             root.after(11000, lambda: indicator.update_from_log("AI校对：这是校对后的文本"))
-            root.after(12000, lambda: indicator.update_from_log("转录耗时：18.5s"))
         
         root.after(1000, simulate_progress)
         root.mainloop()
