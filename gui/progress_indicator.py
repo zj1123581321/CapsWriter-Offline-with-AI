@@ -66,7 +66,7 @@ class ProgressIndicator:
             self.window = tk.Toplevel(self.parent)
             
         self.window.title("")
-        self.window.geometry("120x40")
+        self.window.geometry("120x70")
         self.window.resizable(False, False)
         
         # 彻底的无焦点设置
@@ -88,16 +88,46 @@ class ProgressIndicator:
             self.window.winfo_screenwidth() - 140, 50
         ))
         
+        # 创建主框架
+        main_frame = tk.Frame(
+            self.window,
+            bg='#2a2a2a'
+        )
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
         # 创建主画布 - 极简黑白风格
         self.main_canvas = tk.Canvas(
-            self.window,
+            main_frame,
             bg='#2a2a2a',
             highlightthickness=0,
-            relief='flat'
+            relief='flat',
+            height=32
         )
-        self.main_canvas.pack(fill=tk.BOTH, expand=True)
+        self.main_canvas.pack(fill=tk.X, pady=(7, 3))
         
-        # 设置圆角边框
+        # 添加小的英文状态标签 - 使用Canvas绘制以避免Label裁切问题
+        self.text_canvas = tk.Canvas(
+            main_frame,
+            bg='#2a2a2a',
+            highlightthickness=0,
+            relief='flat',
+            height=20
+        )
+        self.text_canvas.pack(pady=(3, 12), fill=tk.X)
+        
+        # 备用方案：如果Canvas有问题，保留Label作为备选
+        self.status_text = tk.Label(
+            main_frame,
+            text="Idle",
+            font=('Arial', 9, 'normal'),  # 尝试Arial字体
+            bg='#2a2a2a',
+            fg='#888888',
+            anchor='center'
+        )
+        # 暂时不显示Label，先尝试Canvas
+        # self.status_text.pack(pady=(3, 12))
+        
+        # 设置透明度
         self.window.attributes('-alpha', 0.95)
         
         # 移除所有标签，改用canvas绘制
@@ -107,7 +137,7 @@ class ProgressIndicator:
         self._recording_time = 0
         self._icon_pulse = 0
         
-        # 为了兼容性，创建虚拟属性
+        # 为了兼容性，创建虚拟属性（除了status_text，这个是真实的）
         self.progress_var = type('MockVar', (), {'set': lambda x: None, 'get': lambda: 0})()
         self.status_label = type('MockLabel', (), {'config': lambda **kwargs: None})()
         self.detail_label = type('MockLabel', (), {'config': lambda **kwargs: None})()
@@ -296,21 +326,49 @@ class ProgressIndicator:
         center_x = canvas_width // 2
         center_y = canvas_height // 2
         
+        # 更新状态文字 - 使用Canvas绘制
         if stage == ProcessStage.RECORDING:
+            self._draw_text_on_canvas("Recording", '#ff6b6b')
             # 录音状态：白色波浪动画
             self._draw_wave_animation(canvas_width, canvas_height)
         elif stage == ProcessStage.TRANSCRIBING:
+            self._draw_text_on_canvas("Transcribing", '#4dabf7')
             # 转录状态：旋转的圆点
             self._draw_transcribe_icon(center_x, center_y)
         elif stage == ProcessStage.AI_PROOFREADING:
+            self._draw_text_on_canvas("Reviewing", '#ffa726')
             # AI校对状态：脉冲圆圈
             self._draw_ai_icon(center_x, center_y)
         elif stage == ProcessStage.COMPLETED:
+            self._draw_text_on_canvas("Completed", '#51cf66')
             # 完成状态：对勾
             self._draw_check_icon(center_x, center_y)
         else:
+            self._draw_text_on_canvas("Idle", '#888888')
             # 默认状态：静止圆点
             self._draw_idle_icon(center_x, center_y)
+
+    def _draw_text_on_canvas(self, text, color):
+        """在Canvas上绘制文字，避免Label的裁切问题"""
+        self.text_canvas.delete("all")
+        canvas_width = self.text_canvas.winfo_width()
+        canvas_height = self.text_canvas.winfo_height()
+        
+        if canvas_width <= 1:  # 画布还未初始化
+            self.window.after(50, lambda: self._draw_text_on_canvas(text, color))
+            return
+        
+        center_x = canvas_width // 2
+        center_y = canvas_height // 2
+        
+        # 在Canvas上绘制文字，完全控制位置
+        self.text_canvas.create_text(
+            center_x, center_y,
+            text=text,
+            font=('Segoe UI', 9, 'normal'),
+            fill=color,
+            anchor='center'
+        )
 
     def _draw_wave_animation(self, canvas_width, canvas_height):
         """绘制录音状态的白色波浪动画"""
