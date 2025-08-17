@@ -47,6 +47,9 @@ class ClientConfig:
     hot_en   = False            # 是否启用英文热词替换，英文热词存储在 hot_en.txt 文件里
     hot_rule = False            # 是否启用自定义规则替换，自定义规则存储在 hot_rule.txt 文件里
     hot_kwd  = False             # 是否启用关键词日记功能，自定义关键词存储在 keyword.txt 文件里
+    
+    # 转录日志相关配置
+    enable_transcription_log = True  # 是否启用转录日志记录功能，记录原始转录和AI校对结果
 
     # AI校对相关配置
     ai_enhancement = True      # 是否启用AI校对润色功能

@@ -13,6 +13,7 @@ from .client_strip_punc import strip_punc
 from .client_write_md import write_md
 from .client_type_result import type_result
 from .ai_enhancer import get_ai_enhancer
+from ...utils.transcription_logger import log_transcription_result
 
 
 async def recv_result():
@@ -70,6 +71,16 @@ async def recv_result():
             if Config.save_audio:
                 # 重命名录音文件
                 file_audio = rename_audio(message['task_id'], text, message['time_start'])
+
+            # 转录日志记录
+            log_transcription_result(
+                timestamp=message['time_start'],
+                original_text=original_text,
+                ai_enhanced_text=text if Config.ai_enhancement and text != original_text else None,
+                transcription_delay=delay,
+                ai_duration=ai_duration,
+                task_id=message.get('task_id', '')
+            )
 
             # 关键词日记功能（独立于音频保存功能）
             if Config.hot_kwd:
