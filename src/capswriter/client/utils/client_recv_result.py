@@ -65,11 +65,19 @@ async def recv_result():
             # 打字
             await type_result(text)
 
+            # 音频文件处理
+            file_audio = None
             if Config.save_audio:
                 # 重命名录音文件
                 file_audio = rename_audio(message['task_id'], text, message['time_start'])
 
-                # 记录写入 md 文件
+            # 关键词日记功能（独立于音频保存功能）
+            if Config.hot_kwd:
+                # 如果没有保存音频，创建一个虚拟的音频文件路径用于日记记录
+                if file_audio is None:
+                    from pathlib import Path
+                    import uuid
+                    file_audio = Path(f"virtual_audio_{uuid.uuid4().hex[:8]}.wav")
                 write_md(text, message['time_start'], file_audio)
 
             # 控制台输出
