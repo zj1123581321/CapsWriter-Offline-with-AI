@@ -225,13 +225,19 @@ class ProgressIndicator:
             
             # 解析不同类型的日志消息
             if self._match_pattern('recording_start', clean_message):
-                self._start_recording()
+                # 只有在空闲状态才开始新的录音
+                if self.current_stage == ProcessStage.IDLE:
+                    self._start_recording()
                 
             elif self._match_pattern('recording_stop', clean_message):
-                self._stop_recording()
+                # 只有在录音状态才停止录音
+                if self.current_stage == ProcessStage.RECORDING:
+                    self._stop_recording()
                 
             elif self._match_pattern('transcribe_start', clean_message):
-                self._start_transcribing()
+                # 转录应该在录音结束后或空闲状态开始
+                if self.current_stage in [ProcessStage.IDLE]:
+                    self._start_transcribing()
                 
             elif self._contains_progress_info(clean_message):
                 duration = self._extract_progress_duration(clean_message)
@@ -240,16 +246,21 @@ class ProgressIndicator:
                     # 如果还没有开始转录阶段，先开始
                     if self.current_stage == ProcessStage.IDLE:
                         self._start_transcribing()
-                    self._update_transcribe_progress(duration)
+                    elif self.current_stage == ProcessStage.TRANSCRIBING:
+                        self._update_transcribe_progress(duration)
                     
             elif self._match_pattern('transcribe_complete', clean_message):
-                self._transcribe_complete()
+                if self.current_stage == ProcessStage.TRANSCRIBING:
+                    self._transcribe_complete()
                 
             elif self._match_pattern('ai_start', clean_message):
-                self._start_ai_proofreading()
+                # AI校对可以从转录完成状态或空闲状态开始
+                if self.current_stage in [ProcessStage.IDLE, ProcessStage.TRANSCRIBING]:
+                    self._start_ai_proofreading()
                 
             elif self._match_pattern('ai_complete', clean_message):
-                self._ai_complete()
+                if self.current_stage == ProcessStage.AI_PROOFREADING:
+                    self._ai_complete()
                 
             elif self._match_pattern('ai_failed', clean_message):
                 self._ai_failed()
@@ -512,7 +523,9 @@ class ProgressIndicator:
         """停止录音"""
         if self.current_stage == ProcessStage.RECORDING:
             print("[DEBUG] 停止录音，准备转录")
-            self._draw_status_indicator(None)  # 显示默认状态
+            # 明确设置状态为空闲状态，停止录音动画循环
+            self.current_stage = ProcessStage.IDLE
+            self._draw_status_indicator(ProcessStage.IDLE)  # 显示空闲状态
     
     def start_recording_manually(self):
         """手动开始录音状态 - 供外部调用"""
@@ -546,7 +559,9 @@ class ProgressIndicator:
     def _transcribe_complete(self):
         """转录完成"""
         if self.current_stage == ProcessStage.TRANSCRIBING:
-            self._draw_status_indicator(None)  # 显示默认状态
+            print("[DEBUG] 转录完成，设置为空闲状态")
+            self.current_stage = ProcessStage.IDLE
+            self._draw_status_indicator(ProcessStage.IDLE)  # 显示空闲状态
 
     def _start_ai_proofreading(self):
         """开始AI校对阶段"""

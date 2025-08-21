@@ -18,7 +18,8 @@ async def send_message(message):
     # 检查 WebSocket 连接状态：使用 close_code 来判断连接是否关闭
     if Cosmic.websocket is None or Cosmic.websocket.close_code is not None:
         if message['is_final']:
-            Cosmic.audio_files.pop(message['task_id'])
+            # 安全地删除任务ID，避免KeyError
+            Cosmic.audio_files.pop(message['task_id'], None)
             console.print('    服务端未连接，无法发送\n')
     else:
         try:

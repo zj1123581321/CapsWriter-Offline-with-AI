@@ -10,12 +10,17 @@ import re
 def rename_audio(task_id, text, time_start) -> Union[Path, None]:
 
     # 获取旧文件名
-    file_path = Path(Cosmic.audio_files.pop(task_id))
+    file_path_str = Cosmic.audio_files.pop(task_id, None)
+    if file_path_str is None:
+        console.print(f'    任务ID不存在于音频文件记录中：{task_id}')
+        return None
+        
+    file_path = Path(file_path_str)
 
     # 确保旧文件存在
     if not file_path.exists():
         console.print(f'    文件不存在：{file_path}')
-        return
+        return None
 
     # 构建新文件名
     time_year = time.strftime('%Y', time.localtime(time_start))
