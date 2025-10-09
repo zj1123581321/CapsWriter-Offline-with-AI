@@ -1,7 +1,7 @@
 
 import websockets 
-from util.client_cosmic import Cosmic, console
-from config import ClientConfig as Config
+from .client_cosmic import Cosmic, console
+from ...config import ClientConfig as Config
 
 
 class Handler:
@@ -21,7 +21,8 @@ class Handler:
 
 
 async def check_websocket() -> bool:
-    if Cosmic.websocket and not Cosmic.websocket.closed:
+    # 检查 WebSocket 连接状态：close_code 为 None 表示连接正常
+    if Cosmic.websocket and Cosmic.websocket.close_code is None:
         return True
     for _ in range(3):
         with Handler():
