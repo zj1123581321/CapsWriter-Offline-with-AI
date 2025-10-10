@@ -18,6 +18,7 @@ pool = ThreadPoolExecutor()
 pressed = False
 released = True
 event = Event()
+hold_start_time = None  # 记录长按模式下的按键开始时间
 
 
 def shortcut_correct(e: keyboard.KeyboardEvent):
@@ -149,27 +150,52 @@ def click_mode(e: keyboard.KeyboardEvent):
 # ======================长按模式==================================
 
 
-def hold_mode(e: keyboard.KeyboardEvent):
-    """像对讲机一样，按下录音，松开停止"""
-    global task
+def delayed_launch():
+    """延迟启动任务，只有持续按下超过阈值才真正启动"""
+    global hold_start_time
 
-    if e.event_type == 'down' and not Cosmic.on:
-        # 记录开始时间
+    # 等待 threshold 时间
+    time.sleep(Config.threshold)
+
+    # 检查是否仍在按住状态（通过检查 hold_start_time 是否被清除）
+    if hold_start_time is not None:
+        # 仍在按住，启动录音任务
         launch_task()
-    elif e.event_type == 'up':
-        # 记录持续时间，并标识录音线程停止向队列放数据
-        duration = time.time() - Cosmic.on
 
-        # 取消或停止任务
-        if duration < Config.threshold:
-            cancel_task()
-        else:
+
+def hold_mode(e: keyboard.KeyboardEvent):
+    """像对讲机一样，按下录音，松开停止
+
+    改进：只有持续按下超过 threshold 阈值，才会显示录音状态和启动任务
+    """
+    global task, hold_start_time
+
+    if e.event_type == 'down' and not Cosmic.on and hold_start_time is None:
+        # 记录按键开始时间
+        hold_start_time = time.time()
+
+        # 在后台线程中延迟启动任务
+        pool.submit(delayed_launch)
+
+    elif e.event_type == 'up' and hold_start_time is not None:
+        # 计算按键持续时间
+        duration = time.time() - hold_start_time
+
+        # 清除开始时间标记
+        hold_start_time = None
+
+        # 判断是否已经启动了任务
+        if Cosmic.on:
+            # 任务已启动，正常结束
             finish_task()
 
             # 松开快捷键后，再按一次，恢复 CapsLock 或 Shift 等按键的状态
             if Config.restore_key:
                 time.sleep(0.01)
                 keyboard.send(Config.shortcut)
+        else:
+            # 任务未启动（按键时间不足阈值），无需操作
+            pass
 
 
 
