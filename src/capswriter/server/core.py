@@ -57,7 +57,7 @@ async def main():
     recv = websockets.serve(ws_recv,
                             Config.addr,
                             Config.port,
-                            subprotocols=["binary"],
+                            # subprotocols=["binary"],
                             max_size=None)
 
     # 负责发送结果的 coroutine
