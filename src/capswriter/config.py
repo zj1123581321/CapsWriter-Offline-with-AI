@@ -15,8 +15,9 @@ class ServerConfig:
     port = '6016'
 
     # 模型选择配置
-    model_type = 'sensevoice'  # 可选: 'paraformer' 或 'sensevoice'
-    # model_type = 'paraformer'  # 可选: 'paraformer' 或 'sensevoice'
+    # model_type = 'sensevoice'  # 可选: 'paraformer', 'sensevoice', 'firered'
+    # model_type = 'paraformer'
+    model_type = 'firered'
 
     format_num = True  # 输出时是否将中文数字转为阿拉伯数字
     format_punc = True  # 输出时是否启用标点符号引擎（注意：sensevoice 模型已自带标点，会自动禁用外部标点引擎）
@@ -79,7 +80,12 @@ class ModelPaths:
     sensevoice_path = Path() / 'models' / 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17' / 'model.int8.onnx'
     tokens_path_sensevoice = Path() / 'models' / 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17' / 'tokens.txt'
 
-    # 标点符号模型路径（仅 Paraformer 需要）
+    # FireRed ASR 模型路径
+    firered_encoder = Path() / 'models' / 'sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16' / 'encoder.int8.onnx'
+    firered_decoder = Path() / 'models' / 'sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16' / 'decoder.int8.onnx'
+    tokens_path_firered = Path() / 'models' / 'sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16' / 'tokens.txt'
+
+    # 标点符号模型路径（Paraformer 和 FireRed 需要，SenseVoice 自带标点）
     punc_model_dir = Path() / 'models' / 'punc_ct-transformer_cn-en'
 
 
@@ -106,6 +112,18 @@ class SenseVoiceArgs:
     provider = 'cpu'
     language = 'auto'  # 支持: auto, zh, en, ja, ko, yue (自动检测语言)
     use_itn = True    # 是否启用逆文本规范化 (Inverse Text Normalization)
+
+
+class FireRedArgs:
+    """FireRed ASR 模型参数配置"""
+    encoder = f'{ModelPaths.firered_encoder}'
+    decoder = f'{ModelPaths.firered_decoder}'
+    tokens = f'{ModelPaths.tokens_path_firered}'
+    num_threads = 6
+    decoding_method = 'greedy_search'
+    debug = False
+    provider = 'cpu'
+    # FireRed 不支持 language 参数，默认支持中英文
 
 
 # AI增强配置

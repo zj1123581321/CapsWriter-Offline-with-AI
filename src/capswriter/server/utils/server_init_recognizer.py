@@ -11,10 +11,11 @@ except ImportError:
 
 from ...config import ServerConfig as Config
 try:
-    from ...config import ParaformerArgs, SenseVoiceArgs, ModelPaths
+    from ...config import ParaformerArgs, SenseVoiceArgs, FireRedArgs, ModelPaths
 except ImportError:
     ParaformerArgs = None
     SenseVoiceArgs = None
+    FireRedArgs = None
     ModelPaths = None
 
 from .server_cosmic import console
@@ -50,13 +51,13 @@ def init_recognizer(queue_in: Queue, queue_out: Queue, sockets_id):
     with console.status("载入模块中…", spinner="bouncingBall", spinner_style="yellow"):
         import sherpa_onnx
 
-        # CT_Transformer 只在 Paraformer 模式下需要
+        # CT_Transformer 在 Paraformer 和 FireRed 模式下需要，SenseVoice 自带标点
         CT_Transformer = None
-        if Config.model_type == 'paraformer':
+        if Config.model_type in ['paraformer', 'firered']:
             try:
                 from funasr_onnx import CT_Transformer
             except ImportError:
-                console.print('[red]错误：Paraformer 模式需要 funasr_onnx 模块[/red]')
+                console.print(f'[red]错误：{Config.model_type} 模式需要 funasr_onnx 模块[/red]')
                 console.print('[cyan]请运行：pip install funasr-onnx[/cyan]')
                 queue_out.put(None)
                 return
@@ -83,15 +84,21 @@ def init_recognizer(queue_in: Queue, queue_out: Queue, sockets_id):
             **{key: value for key, value in ParaformerArgs.__dict__.items() if not key.startswith('_')}
         )
         console.print(f'[green4]Paraformer 模型载入完成', end='\n\n')
+    elif Config.model_type == 'firered':
+        console.print('[yellow]正在加载 FireRed ASR 模型 (支持中英文及方言)', end='\r')
+        recognizer = sherpa_onnx.OfflineRecognizer.from_fire_red_asr(
+            **{key: value for key, value in FireRedArgs.__dict__.items() if not key.startswith('_')}
+        )
+        console.print(f'[green4]FireRed ASR 模型载入完成', end='\n\n')
     else:
         console.print(f'[red bold]错误：不支持的模型类型 "{Config.model_type}"[/red bold]')
-        console.print('[cyan]支持的模型类型: "paraformer" 或 "sensevoice"[/cyan]')
+        console.print('[cyan]支持的模型类型: "paraformer", "sensevoice" 或 "firered"[/cyan]')
         queue_out.put(None)
         return
 
-    # 载入标点模型（SenseVoice 自带标点，无需额外加载）
+    # 载入标点模型（SenseVoice 自带标点，Paraformer 和 FireRed 需要外部标点模型）
     punc_model = None
-    if Config.format_punc and Config.model_type == 'paraformer':
+    if Config.format_punc and Config.model_type in ['paraformer', 'firered']:
         console.print('[yellow]标点模型载入中', end='\r')
         punc_model = CT_Transformer(ModelPaths.punc_model_dir, quantize=True)
         console.print(f'[green4]标点模型载入完成', end='\n\n')

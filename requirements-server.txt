@@ -4,6 +4,6 @@ numpy
 typeguard==2.13.3
 sherpa_onnx==1.12.14
 funasr_onnx==0.4.1
-kaldi-native-fbank==1.17
+kaldi-native-fbank>=1.22.3
 jieba
 pystray
