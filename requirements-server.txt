@@ -2,8 +2,8 @@ rich
 websockets
 numpy
 typeguard==2.13.3
-sherpa_onnx==1.8.11
-funasr_onnx==0.2.5
+sherpa_onnx==1.12.14
+funasr_onnx==0.4.1
 kaldi-native-fbank==1.17
 jieba
 pystray

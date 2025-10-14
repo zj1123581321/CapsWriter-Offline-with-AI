@@ -14,8 +14,12 @@ class ServerConfig:
     addr = '0.0.0.0'
     port = '6016'
 
+    # 模型选择配置
+    model_type = 'sensevoice'  # 可选: 'paraformer' 或 'sensevoice'
+    # model_type = 'paraformer'  # 可选: 'paraformer' 或 'sensevoice'
+
     format_num = True  # 输出时是否将中文数字转为阿拉伯数字
-    format_punc = True  # 输出时是否启用标点符号引擎
+    format_punc = True  # 输出时是否启用标点符号引擎（注意：sensevoice 模型已自带标点，会自动禁用外部标点引擎）
     format_spell = True  # 输出时是否调整中英之间的空格
 
 
@@ -66,19 +70,42 @@ class ClientConfig:
 
 class ModelPaths:
     model_dir = Path() / 'models'
+
+    # Paraformer 模型路径
     paraformer_path = Path() / 'models' / 'paraformer-offline-zh' / 'model.int8.onnx'
-    tokens_path = Path() / 'models' / 'paraformer-offline-zh' / 'tokens.txt'
+    tokens_path_paraformer = Path() / 'models' / 'paraformer-offline-zh' / 'tokens.txt'
+
+    # SenseVoice 模型路径
+    sensevoice_path = Path() / 'models' / 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17' / 'model.int8.onnx'
+    tokens_path_sensevoice = Path() / 'models' / 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17' / 'tokens.txt'
+
+    # 标点符号模型路径（仅 Paraformer 需要）
     punc_model_dir = Path() / 'models' / 'punc_ct-transformer_cn-en'
 
 
 class ParaformerArgs:
+    """Paraformer 模型参数配置"""
     paraformer = f'{ModelPaths.paraformer_path}'
-    tokens = f'{ModelPaths.tokens_path}'
+    tokens = f'{ModelPaths.tokens_path_paraformer}'
     num_threads = 6
     sample_rate = 16000
     feature_dim = 80
     decoding_method = 'greedy_search'
     debug = False
+
+
+class SenseVoiceArgs:
+    """SenseVoice 模型参数配置"""
+    model = f'{ModelPaths.sensevoice_path}'
+    tokens = f'{ModelPaths.tokens_path_sensevoice}'
+    num_threads = 6
+    sample_rate = 16000
+    feature_dim = 80
+    decoding_method = 'greedy_search'
+    debug = False
+    provider = 'cpu'
+    language = 'auto'  # 支持: auto, zh, en, ja, ko, yue (自动检测语言)
+    use_itn = True    # 是否启用逆文本规范化 (Inverse Text Normalization)
 
 
 # AI增强配置
