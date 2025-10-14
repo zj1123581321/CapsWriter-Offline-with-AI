@@ -15,9 +15,9 @@ class ServerConfig:
     port = '6016'
 
     # 模型选择配置
-    # model_type = 'sensevoice'  # 可选: 'paraformer', 'sensevoice', 'firered'
+    model_type = 'sensevoice'  # 可选: 'paraformer', 'sensevoice', 'firered'
     # model_type = 'paraformer'
-    model_type = 'firered'
+    # model_type = 'firered'
 
     format_num = True  # 输出时是否将中文数字转为阿拉伯数字
     format_punc = True  # 输出时是否启用标点符号引擎（注意：sensevoice 模型已自带标点，会自动禁用外部标点引擎）

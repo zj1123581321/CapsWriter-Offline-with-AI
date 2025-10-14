@@ -55,6 +55,8 @@ dist/
 /scripts/temp/
 data/ai_ref_word.txt
 1970
+AGENTS.md
+ref_codes
 
 # 转录结果文件模式
 *_transcribed.json
