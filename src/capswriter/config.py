@@ -20,7 +20,7 @@ class ServerConfig:
     # model_type = 'firered'
 
     format_num = True  # 输出时是否将中文数字转为阿拉伯数字
-    format_punc = True  # 输出时是否启用标点符号引擎（注意：sensevoice 模型已自带标点，会自动禁用外部标点引擎）
+    format_punc = False  # 输出时是否启用标点符号引擎（注意：sensevoice 模型已自带标点，会自动禁用外部标点引擎）
     format_spell = True  # 输出时是否调整中英之间的空格
 
 

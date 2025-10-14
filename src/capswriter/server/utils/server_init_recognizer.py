@@ -48,7 +48,7 @@ def init_recognizer(queue_in: Queue, queue_out: Queue, sockets_id):
     # Ctrl-C 退出
     signal.signal(signal.SIGINT, lambda signum, frame: exit())
 
-    # 应用 funasr-onnx 兼容性补丁
+    # 应用 funasr-onnx 兼容性补丁（必须在导入 funasr_onnx 之前）
     console.print('[cyan]应用兼容性补丁...', end='\r')
     apply_funasr_onnx_patches()
     ensure_model_files()
@@ -59,12 +59,16 @@ def init_recognizer(queue_in: Queue, queue_out: Queue, sockets_id):
         import sherpa_onnx
 
         # CT_Transformer 在 Paraformer 和 FireRed 模式下需要，SenseVoice 自带标点
+        # 注意：必须在应用补丁后才能导入
         CT_Transformer = None
         if Config.model_type in ['paraformer', 'firered']:
             try:
+                # 先测试能否导入 funasr_onnx 包
+                import funasr_onnx
                 from funasr_onnx import CT_Transformer
-            except ImportError:
+            except ImportError as e:
                 console.print(f'[red]错误：{Config.model_type} 模式需要 funasr_onnx 模块[/red]')
+                console.print(f'[red]导入错误详情: {e}[/red]')
                 console.print('[cyan]请运行：pip install funasr-onnx[/cyan]')
                 queue_out.put(None)
                 return

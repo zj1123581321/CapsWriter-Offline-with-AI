@@ -21,12 +21,17 @@ def apply_funasr_onnx_patches():
     修复的问题：
     1. SenseVoiceSmall 导入 torch 的问题
     2. CT_Transformer 配置格式兼容性问题
+
+    注意：此方法会在首次运行时自动修补虚拟环境中的文件
     """
     try:
         # 修复 SenseVoiceSmall 导入问题
         _patch_sensevoice_import()
 
-        # 修复 CT_Transformer 配置读取问题
+        # 修复 punc_bin.py 配置读取问题
+        _patch_punc_bin()
+
+        # 修复 CT_Transformer 配置读取问题（Monkey Patch 方式）
         _patch_ct_transformer_config()
 
         logger.info("FunASR-ONNX 补丁应用成功")
@@ -39,21 +44,103 @@ def apply_funasr_onnx_patches():
 def _patch_sensevoice_import():
     """
     修复 funasr_onnx 导入 SenseVoiceSmall 时需要 torch 的问题
+
+    不修改源文件，而是通过自动修补虚拟环境中的文件（运行时一次性修改）
     """
     try:
-        import funasr_onnx
+        import sys
+        import importlib.util
 
-        # 检查是否已经有 SenseVoiceSmall 属性
-        if not hasattr(funasr_onnx, 'SenseVoiceSmall'):
-            # 尝试导入，失败则设为 None
-            try:
-                from funasr_onnx.sensevoice_bin import SenseVoiceSmall
-                funasr_onnx.SenseVoiceSmall = SenseVoiceSmall
-            except ImportError:
-                funasr_onnx.SenseVoiceSmall = None
-                logger.info("SenseVoiceSmall 需要 torch，已设为可选导入")
+        # 找到 funasr_onnx 的 __init__.py 路径
+        spec = importlib.util.find_spec('funasr_onnx')
+        if spec is None or spec.origin is None:
+            logger.warning("找不到 funasr_onnx 模块")
+            return
+
+        init_file = spec.origin
+
+        # 读取原始内容
+        with open(init_file, 'r', encoding='utf-8') as f:
+            original_content = f.read()
+
+        # 检查是否需要修补
+        if 'SenseVoiceSmall = None' in original_content:
+            # 已经修补过了
+            return
+
+        # 检查是否有无条件的 SenseVoiceSmall 导入
+        if 'from .sensevoice_bin import SenseVoiceSmall' in original_content:
+            # 创建修补后的内容
+            patched_content = original_content.replace(
+                'from .sensevoice_bin import SenseVoiceSmall',
+                '''# SenseVoiceSmall 需要 torch，设为可选导入
+try:
+    from .sensevoice_bin import SenseVoiceSmall
+except ImportError:
+    SenseVoiceSmall = None'''
+            )
+
+            # 写回文件（运行时一次性修改）
+            with open(init_file, 'w', encoding='utf-8') as f:
+                f.write(patched_content)
+
+            logger.info("已自动修补 funasr_onnx/__init__.py（首次运行时自动应用）")
+
+            # 如果已经导入过，需要重新加载
+            if 'funasr_onnx' in sys.modules:
+                del sys.modules['funasr_onnx']
+
     except Exception as e:
-        logger.warning(f"修复 SenseVoiceSmall 导入失败: {e}")
+        logger.warning(f"自动修补 SenseVoiceSmall 导入失败: {e}")
+        logger.warning("将使用备用方案...")
+
+
+def _patch_punc_bin():
+    """
+    修补 punc_bin.py 文件，兼容不同的配置格式
+    """
+    try:
+        import importlib.util
+
+        # 找到 funasr_onnx 的 punc_bin.py 路径
+        spec = importlib.util.find_spec('funasr_onnx.punc_bin')
+        if spec is None or spec.origin is None:
+            logger.warning("找不到 funasr_onnx.punc_bin 模块")
+            return
+
+        punc_bin_file = spec.origin
+
+        # 读取原始内容
+        with open(punc_bin_file, 'r', encoding='utf-8') as f:
+            original_content = f.read()
+
+        # 检查是否需要修补
+        if '兼容不同的配置格式' in original_content:
+            # 已经修补过了
+            return
+
+        # 检查是否有硬编码的 config["model_conf"]["punc_list"]
+        if 'self.punc_list = config["model_conf"]["punc_list"]' in original_content:
+            # 创建修补后的内容
+            patched_content = original_content.replace(
+                'self.punc_list = config["model_conf"]["punc_list"]',
+                '''# 兼容不同的配置格式
+        if "model_conf" in config and "punc_list" in config["model_conf"]:
+            self.punc_list = config["model_conf"]["punc_list"]
+        elif "punc_list" in config:
+            self.punc_list = config["punc_list"]
+        else:
+            raise KeyError("Cannot find punc_list in config")'''
+            )
+
+            # 写回文件
+            with open(punc_bin_file, 'w', encoding='utf-8') as f:
+                f.write(patched_content)
+
+            logger.info("已自动修补 funasr_onnx/punc_bin.py（首次运行时自动应用）")
+
+    except Exception as e:
+        logger.warning(f"自动修补 punc_bin.py 失败: {e}")
 
 
 def _patch_ct_transformer_config():
