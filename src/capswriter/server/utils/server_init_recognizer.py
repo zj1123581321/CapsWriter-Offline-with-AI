@@ -21,6 +21,7 @@ except ImportError:
 from .server_cosmic import console
 from .server_recognize import recognize
 from ...utils.empty_working_set import empty_current_working_set
+from .funasr_onnx_patch import apply_funasr_onnx_patches, ensure_model_files
 
 
 
@@ -46,6 +47,12 @@ def init_recognizer(queue_in: Queue, queue_out: Queue, sockets_id):
     
     # Ctrl-C 退出
     signal.signal(signal.SIGINT, lambda signum, frame: exit())
+
+    # 应用 funasr-onnx 兼容性补丁
+    console.print('[cyan]应用兼容性补丁...', end='\r')
+    apply_funasr_onnx_patches()
+    ensure_model_files()
+    console.print('[green4]兼容性补丁应用完成', end='\n\n')
 
     # 导入模块
     with console.status("载入模块中…", spinner="bouncingBall", spinner_style="yellow"):

@@ -78,6 +78,10 @@ ref_codes
 # 模型文件
 models/*
 !models/.gitkeep
+
+# 自动生成的模型配置文件（由补丁脚本生成）
+models/punc_ct-transformer_cn-en/config.yaml
+models/punc_ct-transformer_cn-en/tokens.json
 2025
 
 # 日志
