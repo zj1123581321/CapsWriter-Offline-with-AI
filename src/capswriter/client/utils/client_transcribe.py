@@ -90,7 +90,9 @@ async def transcribe_recv(file: Path):
     # 接收结果
     async for message in websocket:
         message = json.loads(message)
-        console.print(f'    转录进度: {message["duration"]:.2f}s', end='\r')
+        # 添加 task_id 前缀，与服务端日志保持一致
+        task_prefix = f'[{message["task_id"][:8]}]'
+        console.print(f'{task_prefix} [客户端] 转录进度: {message["duration"]:.2f}s')
         if message['is_final']:
             break
 

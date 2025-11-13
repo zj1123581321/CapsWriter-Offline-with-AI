@@ -48,12 +48,16 @@ async def ws_send():
             # 发送消息
             await websocket.send(json.dumps(message))
 
+            # 日志输出：添加 task_id 前缀以区分不同任务
+            task_prefix = f'[{result.task_id[:8]}]'
+
             if result.source == 'mic':
-                console.print(f'识别结果：\n    [green]{result.text}')
+                console.print(f'{task_prefix} 识别结果：[green]{result.text}')
             elif result.source == 'file':
-                console.print(f'    转录进度：{result.duration:.2f}s', end='\r')
+                # 多任务并发时，去掉 end='\r' 避免进度互相覆盖
+                console.print(f'{task_prefix} 转录进度：{result.duration:.2f}s')
                 if result.is_final:
-                    console.print('\n    [green]转录完成')
+                    console.print(f'{task_prefix} [green]转录完成 ✓')
 
         except Exception as e:
             print(e)

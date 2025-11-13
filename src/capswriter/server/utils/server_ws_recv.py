@@ -52,7 +52,7 @@ async def message_handler(websocket, message, cache: Cache):
         if source == 'mic':
             status_mic.start()
         if source == 'file' and is_start:
-            console.print('正在接收音频文件...')
+            console.print(f'[{task_id[:8]}] 正在接收音频文件...')
 
         # 若缓冲已达到分段长度，将片段作为任务提交
         while len(cache.chunks) / 4 / 16000 >= seg_threshold:
@@ -73,7 +73,7 @@ async def message_handler(websocket, message, cache: Cache):
         if source == 'mic':
             status_mic.stop()
         elif source == 'file':
-            print(f'音频文件接收完毕，时长 {cache.frame_num / 16000 / 4:.2f}s')
+            print(f'[{task_id[:8]}] 音频文件接收完毕，时长 {cache.frame_num / 16000 / 4:.2f}s')
 
         # 客户端说片段结束，将缓冲区音频识别
         task = Task(source=message['source'],
