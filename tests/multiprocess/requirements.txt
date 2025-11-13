@@ -1,0 +1,13 @@
+# CapsWriter 多进程测试所需的额外依赖
+#
+# 安装方法：
+#   pip install -r tests/multiprocess/requirements.txt
+
+# 资源监控
+psutil>=5.9.0
+
+# Rich 显示（项目已包含）
+# rich>=13.0.0
+
+# WebSocket 客户端（项目已包含）
+# websockets>=10.0

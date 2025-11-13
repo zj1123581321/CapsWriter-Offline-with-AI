@@ -120,6 +120,10 @@ coverage.xml
 # 特定于CapsWriter的文件
 # 如果有其他特定文件需要忽略，请在此处添加
 
+# 多进程测试相关
+tests/multiprocess/logs/
+tests/multiprocess/*.csv
+
 # 打包相关
 *.spec
 build/

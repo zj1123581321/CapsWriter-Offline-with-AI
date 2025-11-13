@@ -1,0 +1,21 @@
+# 测试生成的日志文件
+logs/
+*.csv
+*.log
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 测试生成的输出文件
+*.json
+*.srt
+*.merge.txt
+
+# 但保留说明文档
+!README.md
+!OVERVIEW.md
+!QUICKSTART.md
+!测试方案总结.md
+!启动说明.md
