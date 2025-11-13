@@ -23,7 +23,8 @@ class Cache:
 async def message_handler(websocket, message, cache: Cache):
     """处理得到的音频流数据"""
 
-    queue_in = Cosmic.queue_in
+    # 删除旧的 queue_in 引用，改用分配器
+    # queue_in = Cosmic.queue_in
 
     global status_mic
     source = message['source']
@@ -64,7 +65,8 @@ async def message_handler(websocket, message, cache: Cache):
                         time_start=message['time_start'],
                         time_submit=time.time())
             cache.offset += seg_duration
-            queue_in.put(task)
+            # 使用分配器分配任务
+            Cosmic.dispatcher.dispatch(task)
 
     elif is_final:
         # 打印消息
@@ -80,7 +82,8 @@ async def message_handler(websocket, message, cache: Cache):
                     overlap=seg_overlap, is_final=True,
                     time_start=message['time_start'],
                     time_submit=time.time())
-        queue_in.put(task)
+        # 使用分配器分配任务
+        Cosmic.dispatcher.dispatch(task)
 
         # 还原缓冲区、偏移时长
         cache.chunks = b''

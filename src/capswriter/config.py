@@ -23,6 +23,29 @@ class ServerConfig:
     format_punc = False  # 输出时是否启用标点符号引擎（注意：sensevoice 模型已自带标点，会自动禁用外部标点引擎）
     format_spell = True  # 输出时是否调整中英之间的空格
 
+    # ========== 多进程配置 ==========
+    # 识别进程数配置
+    #
+    # 说明：
+    #   - 1: 单进程模式（默认）
+    #   - N (N>1): 多进程模式，启用 N 个识别进程
+    #
+    # 性能参考（2进程 vs 1进程）：
+    #   - 并发能力: 2倍
+    #   - 吞吐量: 1.8-2.0倍
+    #   - 内存占用: 1.8-2.0倍
+    #
+    # 推荐配置：
+    #   - 16GB 内存: worker_processes = 2
+    #   - 32GB 内存: worker_processes = 3
+    #   - 64GB+ 内存: worker_processes = 4
+    #
+    # 注意：
+    #   - 多进程仅在批量转写多文件时有效
+    #   - 单文件转写无法利用多进程优势
+    #   - 内存占用会线性增加
+    worker_processes = 2
+
 
 # 客户端配置
 class ClientConfig:
