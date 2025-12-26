@@ -17,10 +17,12 @@ import uuid
 import subprocess
 import argparse
 import logging
+from datetime import timedelta
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict, Any
 
 import websockets
+import srt
 
 # 添加项目根目录到系统路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,17 +31,183 @@ def load_config():
     """简单的配置加载函数 - 返回默认配置"""
     return {
         'server_addr': 'localhost',
-        'server_port': 6006,
+        'server_port': 6016,
         'shortcut_key': 'caps lock',
         'hold_mode': True
     }
+
+
+# ============== SRT 生成相关类和函数 ==============
+
+class Scout:
+    """
+    侦察兵类，用于在 words 列表中寻找与文本行的最佳匹配位置。
+
+    Attributes:
+        hit: 命中次数（成功匹配的词数）
+        miss: 未命中次数（匹配失败的词数）
+        score: 得分（hit - miss）
+        start: 匹配的起始位置索引
+        text: 待匹配的文本（已清除标点符号）
+    """
+    def __init__(self):
+        self.hit = 0
+        self.miss = 0
+        self.score = 0
+        self.start = 0
+        self.text = ''
+
+
+def _get_scout(line: str, words: List[Dict], cursor: int) -> Optional[Scout]:
+    """
+    派出多个侦察兵探索最佳匹配位置。
+
+    算法思路：
+    1. 从 cursor 位置开始，派出多个侦察兵
+    2. 每个侦察兵尝试将文本行与 words 列表匹配
+    3. 记录命中和未命中次数，计算得分
+    4. 返回得分最高的侦察兵
+
+    Args:
+        line: 要匹配的文本行
+        words: 包含时间戳的词列表
+        cursor: 当前搜索起始位置
+
+    Returns:
+        得分最高的 Scout 对象，如果无法匹配则返回 None
+    """
+    words_num = len(words)
+    scout_list = []
+    scout_num, _ = 5, 0
+
+    while _ <= scout_num:
+        # 新建一个侦察兵
+        scout = Scout()
+        scout.text = re.sub(r'[,.?:%，。？、\s\d]', '', line.lower())
+        _ += 1
+
+        # 找到起始点
+        while cursor < words_num \
+            and scout.text \
+            and words[cursor]['word'] not in scout.text:
+            cursor += 1
+        scout.start = cursor
+
+        # 如果到末尾了，就不必侦察了
+        if cursor == words_num:
+            break
+
+        # 开始侦察，容错5个词，查找连续匹配
+        tolerance = 5
+        while cursor < words_num and tolerance:
+            if words[cursor]['word'].lower() in scout.text:
+                scout.text = scout.text.replace(words[cursor]['word'].lower(), '', 1)
+                scout.hit += 1
+                cursor += 1
+                tolerance = 5
+            else:
+                if words[cursor]['word'] not in '零一二三四五六七八九十百千万幺两点时分秒之':
+                    tolerance -= 1
+                    scout.miss += 1
+                cursor += 1
+            if not scout.text:
+                break
+
+        # 侦查完毕，带着得分入列
+        scout.score = scout.hit - scout.miss
+        scout_list.append(scout)
+
+        # 如果侦查分优秀，步进一步再重新细勘
+        if scout.hit >= 2:
+            cursor = scout.start + 1
+            scout_num += 1
+
+    # 如果因越界导致无法探察，说明出现严重错误
+    if not scout_list:
+        return None
+
+    # 找到得分最好的侦察员
+    best = scout_list[0]
+    for scout in scout_list:
+        if scout.score > best.score:
+            best = scout
+
+    return best
+
+
+def _lines_match_words(text_lines: List[str], words: List[Dict]) -> List[srt.Subtitle]:
+    """
+    将文本行与带时间戳的词列表匹配，生成字幕列表。
+
+    Args:
+        text_lines: 分行的文本列表
+        words: 带时间戳的词列表，格式为 [{'word': str, 'start': float, 'end': float}, ...]
+
+    Returns:
+        srt.Subtitle 对象列表
+    """
+    subtitle_list = []
+    cursor = 0
+    words_num = len(words)
+
+    for index, line in enumerate(text_lines):
+        # 清除空行
+        if not line.strip():
+            continue
+
+        # 侦察前方，得到起点、评分
+        scout = _get_scout(line, words, cursor)
+        if not scout:
+            # 没有结果表明出错，应提前结束
+            break
+        cursor, score = scout.start, scout.score
+
+        # 避免越界
+        if cursor >= words_num:
+            break
+
+        # 初始化
+        temp_text = re.sub(r'[,.?，。？、\s]', '', line.lower())
+        t1 = words[cursor]['start']
+        t2 = words[cursor]['end']
+        threshold = 8
+
+        # 开始匹配
+        probe = cursor
+        while (probe - cursor < threshold):
+            if probe >= words_num:
+                break
+            w = words[probe]['word'].lower().strip(' ,.?!，。？！@')
+            t4 = words[probe]['end']
+            probe += 1
+            if w in temp_text:
+                temp_text = temp_text.replace(w, '', 1)
+                t2 = t4  # 延长字幕结束时间
+                cursor = probe
+                if not temp_text:
+                    break
+
+        # 新建字幕
+        subtitle = srt.Subtitle(
+            index=index + 1,  # SRT 索引从 1 开始
+            content=line.strip(),
+            start=timedelta(seconds=t1),
+            end=timedelta(seconds=t2)
+        )
+        subtitle_list.append(subtitle)
+
+        # 如果本轮侦察评分不优秀，下一句应当回溯，避免本句识别末尾没刹住
+        if score <= 0:
+            cursor = max(0, cursor - 20)
+
+    return subtitle_list
 
 
 class Config:
     """配置类"""
     # 默认配置
     server_addr = 'localhost'
-    server_port = 6006
+    server_port = 6016
     file_seg_duration = 25
     file_seg_overlap = 2
     enable_hot_words = True
@@ -58,7 +226,7 @@ class Config:
             capswriter_config = config.get("capswriter", {})
             
             # 解析服务器URL
-            server_url = capswriter_config.get("server_url", "ws://localhost:6006")
+            server_url = capswriter_config.get("server_url", "ws://localhost:6016")
             if server_url.startswith("ws://"):
                 server_url = server_url[5:]
             if ":" in server_url:
@@ -66,7 +234,7 @@ class Config:
                 cls.server_port = int(port_str)
             else:
                 cls.server_addr = server_url
-                cls.server_port = 6006
+                cls.server_port = 6016
             
             # 其他配置
             cls.file_seg_duration = capswriter_config.get("file_seg_duration", 25)
@@ -151,6 +319,26 @@ class CapsWriterClient:
                 self.logger.error(message)
             else:
                 print(message)
+
+    def _build_words_list(self, timestamps: List[float], tokens: List[str]) -> List[Dict]:
+        """
+        从时间戳和词列表构建带时间信息的词列表。
+
+        Args:
+            timestamps: 每个词的开始时间戳列表
+            tokens: 词列表
+
+        Returns:
+            带时间戳的词列表，格式为 [{'word': str, 'start': float, 'end': float}, ...]
+        """
+        words = [
+            {'word': token.replace('@', ''), 'start': ts, 'end': ts + 0.2}
+            for ts, token in zip(timestamps, tokens)
+        ]
+        # 修正 end 时间，使其不超过下一个词的开始时间
+        for i in range(len(words) - 1):
+            words[i]['end'] = min(words[i]['end'], words[i + 1]['start'])
+        return words
     
     async def _check_file(self, file_path: Path) -> bool:
         """检查文件是否存在"""
@@ -361,7 +549,25 @@ class CapsWriterClient:
                     f.write(text)
                 generated_files.append(merge_txt_file)
                 self.log(f"已生成合并文本文件: {merge_txt_file}")
-            
+
+            # 保存 SRT 字幕文件
+            if Config.generate_srt:
+                srt_file = Path(self.output_dir) / f"{base_path.name}.srt"
+                if timestamps and tokens:
+                    # 构建带时间戳的词列表
+                    words = self._build_words_list(timestamps, tokens)
+                    # 获取分行文本
+                    text_lines = [line for line in text_split.split('\n') if line.strip()]
+                    # 匹配生成字幕列表
+                    subtitle_list = _lines_match_words(text_lines, words)
+                    # 写入 SRT 文件
+                    with open(srt_file, "w", encoding="utf-8") as f:
+                        f.write(srt.compose(subtitle_list))
+                    generated_files.append(srt_file)
+                    self.log(f"已生成字幕文件: {srt_file}")
+                else:
+                    self.log("无法生成 SRT 文件：缺少时间戳或词列表数据", "warning")
+
             # 显示转录结果摘要
             if text:
                 preview = text[:100] + "..." if len(text) > 100 else text
@@ -469,8 +675,8 @@ def main():
     parser.add_argument("--port", type=int, help="服务器端口", default=Config.server_port)
     parser.add_argument("--output", help="输出目录", 
                        default=project_config.get("storage", {}).get("output_dir", "./output"))
-    parser.add_argument("--format", choices=['txt', 'merge', 'json', 'all'], 
-                       default='txt', help="输出格式")
+    parser.add_argument("--format", choices=['txt', 'merge', 'json', 'srt', 'all'],
+                       default='txt', help="输出格式 (txt/merge/json/srt/all)")
     parser.add_argument("--retries", type=int, 
                        default=project_config.get("capswriter", {}).get("max_retries", 3), 
                        help="最大重试次数")
@@ -483,18 +689,27 @@ def main():
         Config.generate_txt = True
         Config.generate_merge_txt = False
         Config.generate_json = False
+        Config.generate_srt = False
     elif args.format == 'merge':
         Config.generate_txt = False
         Config.generate_merge_txt = True
         Config.generate_json = False
+        Config.generate_srt = False
     elif args.format == 'json':
         Config.generate_txt = False
         Config.generate_merge_txt = False
         Config.generate_json = True
+        Config.generate_srt = False
+    elif args.format == 'srt':
+        Config.generate_txt = False
+        Config.generate_merge_txt = False
+        Config.generate_json = False
+        Config.generate_srt = True
     elif args.format == 'all':
         Config.generate_txt = True
         Config.generate_merge_txt = True
         Config.generate_json = True
+        Config.generate_srt = True
     
     # 设置静默模式
     if args.quiet:
