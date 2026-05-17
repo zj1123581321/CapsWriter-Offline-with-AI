@@ -20,7 +20,7 @@ class ServerConfig:
     format_spell = True     # 输出时是否调整中英之间的空格
 
     enable_tray = True        # 是否启用托盘图标功能
-    hotwords_path = Path() / 'hot-server.txt' # 全局热词配置文件路径
+    hotwords_path = Path(BASE_DIR) / 'hot-server.txt' # 全局热词配置文件路径
 
     # 日志配置
     log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
@@ -42,8 +42,8 @@ class ModelDownloadLinks:
 class ModelPaths:
     """模型文件路径配置"""
 
-    # 基础目录
-    model_dir = Path() / 'models'
+    # 基础目录（锚定到 config_server.py 所在目录，避免子进程 cwd 漂移导致 ONNX 找不到）
+    model_dir = Path(BASE_DIR) / 'models'
 
     # Paraformer 模型路径
     paraformer_dir = model_dir / 'Paraformer' / "speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx"
@@ -66,7 +66,7 @@ class ModelPaths:
     fun_asr_nano_gguf_ctc = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-CTC.fp16.onnx'
     fun_asr_nano_gguf_llm_decode = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-Decoder.q5_k.gguf'
     fun_asr_nano_gguf_token = fun_asr_nano_gguf_dir / 'tokens.txt'
-    fun_asr_nano_gguf_hotwords = Path() / 'hot-server.txt'
+    fun_asr_nano_gguf_hotwords = Path(BASE_DIR) / 'hot-server.txt'
 
     # Qwen3-ASR 模型路径，自带标点
     qwen3_asr_gguf_dir = model_dir / 'Qwen3-ASR' / 'Qwen3-ASR-1.7B'
