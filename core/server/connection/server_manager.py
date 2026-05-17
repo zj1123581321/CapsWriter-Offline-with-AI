@@ -66,7 +66,6 @@ class SocketManager:
             handler,
             Config.addr,
             Config.port,
-            subprotocols=["binary"],
             max_size=None
         ) as server:
             self._server = server  # 保存 server 引用，用于外部关闭
