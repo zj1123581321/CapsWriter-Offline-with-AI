@@ -244,6 +244,10 @@ class QwenForcedAligner:
         self.ID_AUDIO_END = self.model.token_to_id("<|audio_end|>")
         self.ID_TIMESTAMP = self.model.token_to_id("<timestamp>")
         self.STEP_MS = 80.0
+        # llama decode 要求 n_tokens_all <= n_batch(=n_ctx)；超限会触发 C++ GGML_ASSERT
+        # 直接 abort 整个子进程（Python 捕获不到）。记下上限用于护栏降级。
+        self.n_ctx = config.n_ctx
+        self.SAMPLE_RATE = 16000
 
     def align(self, audio: np.ndarray, text: str, language: str = "Chinese", offset_sec: float = 0.0) -> ForcedAlignResult:
         """执行强制对齐，支持起始偏移量叠加"""
@@ -285,6 +289,33 @@ class QwenForcedAligner:
 
         # 构建最终全量序列
         n_total = len(pre_ids) + audio_embd.shape[0] + len(post_ids)
+
+        # 护栏：n_total 超过 n_batch(=n_ctx) 时，llama decode 会触发 GGML_ASSERT
+        # 直接 core dump 杀掉 worker 子进程。此处提前拦截，降级为线性时间戳，
+        # 保证进程存活、流水线继续（正常 60s 段 n_total≈1600，远低于上限，不受影响）。
+        if n_total > self.n_ctx:
+            dur = len(audio) / self.SAMPLE_RATE
+            logger.warning(
+                f"[Aligner] 段过长触发护栏: n_total={n_total} > n_ctx={self.n_ctx} "
+                f"(音频≈{dur:.0f}s)。跳过精确对齐，降级为线性时间戳以避免子进程崩溃。"
+                f"建议将 file_seg_duration 控制在 ~100s 以内。"
+            )
+            n = max(len(words), 1)
+            items = [
+                ForcedAlignItem(
+                    text=w,
+                    start_time=offset_sec + dur * i / n,
+                    end_time=offset_sec + dur * (i + 1) / n,
+                )
+                for i, w in enumerate(words)
+            ]
+            final_items = self.processor.reconcile(text, items)
+            return ForcedAlignResult(
+                items=final_items,
+                performance={"encoder_time": t_enc, "decoder_time": 0.0,
+                             "total_time": time.time() - t_start, "degraded": True},
+            )
+
         full_embd = np.zeros((n_total, self.model.n_embd), dtype=np.float32)
         full_embd[:len(pre_ids)] = self.embedding_table[pre_ids]
         full_embd[len(pre_ids):len(pre_ids)+audio_embd.shape[0]] = audio_embd
