@@ -32,3 +32,9 @@ soynlp
 # 托盘 import 链(即便 enable_tray=False 也在模块加载期被 import)
 markdown
 tkhtmlview
+
+# ============ GPU 后端：Vulkan → CUDA（RTF 0.29 → 0.041，7x）============
+# llama.cpp Linux 无 CUDA 预编译包。本机直接复用 funasr_spk_server 已编译的同版 CUDA 库：
+#   cp <funasr>/src/core/vendor/qwen_asr_gguf/inference/bin/{libllama,libggml,libggml-base,libggml-cpu,libggml-cuda}.so #      core/server/engines/llama/bin/
+# 并需把 llama.py 加载器改成 RTLD_GLOBAL + 预加载 libggml-base/libggml-cpu（否则分离式 cuda backend 加载不到符号）
+# 编码器(ONNX)进一步上 GPU：装 onnxruntime-gpu + onnx_provider=CUDA（可再砍 ~5.7s/300s）
