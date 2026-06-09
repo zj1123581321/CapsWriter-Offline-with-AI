@@ -146,7 +146,7 @@ class Qwen3ASRGGUFArgs:
     llm_fn = ModelPaths.qwen3_asr_gguf_llm_decode.name
 
     # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
+    onnx_provider = 'CUDA'       # ONNX 推理后端 (CPU, DML)
     llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
     
     # 模型细节

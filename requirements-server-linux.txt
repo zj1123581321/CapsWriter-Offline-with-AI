@@ -38,3 +38,8 @@ tkhtmlview
 #   cp <funasr>/src/core/vendor/qwen_asr_gguf/inference/bin/{libllama,libggml,libggml-base,libggml-cpu,libggml-cuda}.so #      core/server/engines/llama/bin/
 # 并需把 llama.py 加载器改成 RTLD_GLOBAL + 预加载 libggml-base/libggml-cpu（否则分离式 cuda backend 加载不到符号）
 # 编码器(ONNX)进一步上 GPU：装 onnxruntime-gpu + onnx_provider=CUDA（可再砍 ~5.7s/300s）
+
+# 编码器也上 GPU（RTF 0.041→0.025）：
+#   pip uninstall onnxruntime; pip install onnxruntime-gpu==1.26.0 nvidia-cudnn-cu12==9.10.2.21 nvidia-cublas-cu12
+#   config_server.py: Qwen3ASRGGUFArgs.onnx_provider=CUDA
+#   ⚠️ systemd 的 LD_LIBRARY_PATH 必须含 venv 内 nvidia/{cudnn,cublas,cuda_nvrtc}/lib，否则 libcudnn.so.9 找不到→静默回退 CPU
