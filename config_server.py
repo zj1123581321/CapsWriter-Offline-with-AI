@@ -8,6 +8,32 @@ __version__ = '2.6'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+# ---------------------------------------------------------------------------
+# 部署环境覆盖 (Deployment Override)
+# master 主线默认全 CPU；GPU 部署（如 Linux + CUDA/Vulkan）通过环境变量切换，
+# 无需改动源码。可用变量：
+#   CW_ONNX_PROVIDER          ONNX 后端：CPU(默认)/CUDA/DML/TRT   —— SenseVoice/FunASR/Qwen
+#   CW_LLM_USE_GPU            GGUF LLM 是否用 GPU：0(默认)/1       —— FunASR/Qwen
+#   CW_VULKAN_FORCE_FP32      Vulkan 强制 FP32：0(默认)/1          —— FunASR
+#   CW_ALIGNER_ONNX_PROVIDER  对齐器 ONNX 后端：CPU(默认)/...      —— ForceAligner
+#   CW_ALIGNER_LLM_USE_GPU    对齐器 GGUF 是否用 GPU：0(默认)/1    —— ForceAligner
+# 示例（Linux GPU 部署）：export CW_ONNX_PROVIDER=CUDA CW_LLM_USE_GPU=1
+# ---------------------------------------------------------------------------
+
+def _env_str(key: str, default: str) -> str:
+    """读取字符串型环境变量，未设置或为空时返回默认值。"""
+    val = os.environ.get(key)
+    return val if val else default
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    """读取布尔型环境变量，接受 1/true/yes/on（不区分大小写）。"""
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    return val.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 # 服务端配置
 class ServerConfig:
     addr = '0.0.0.0'
@@ -97,7 +123,7 @@ class ParaformerArgs:
     sample_rate = 16000
     feature_dim = 80
     decoding_method = 'greedy_search'
-    provider = 'cpu'
+    provider = 'cpu'            # Paraformer 不支持 GPU 加速，固定 CPU（不随 CW_ONNX_PROVIDER 变化）
     debug = False
 
 
@@ -108,7 +134,7 @@ class SenseVoiceArgs:
     decoder_path = ModelPaths.sensevoice_decoder.as_posix()
     tokenizer_path = ModelPaths.sensevoice_tokenizer.as_posix()
     itn = True                  # 原生输出阿拉伯数字
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
+    onnx_provider = _env_str('CW_ONNX_PROVIDER', 'CPU')  # ONNX 推理后端 (CPU/CUDA/DML)，环境变量可覆盖
     top_k = 8                   # 热词检索的 CTC 空间大小
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
 
@@ -122,10 +148,10 @@ class FunASRNanoGGUFArgs:
     decoder_gguf_path = ModelPaths.fun_asr_nano_gguf_llm_decode.as_posix()
     tokens_path = ModelPaths.fun_asr_nano_gguf_token.as_posix()
 
-    # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
-    llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
-    vulkan_force_fp32 = False   # 是否强制 FP32 计算（如果 GPU 是 Intel 集显且出现精度溢出，可设为 True）
+    # 显卡加速（默认 CPU，部署时由环境变量覆盖）
+    onnx_provider = _env_str('CW_ONNX_PROVIDER', 'CPU')   # ONNX 推理后端 (CPU/CUDA/DML)
+    llm_use_gpu = _env_bool('CW_LLM_USE_GPU', False)      # 是否启用 GPU 加速 GGUF 模型
+    vulkan_force_fp32 = _env_bool('CW_VULKAN_FORCE_FP32', False)  # 强制 FP32（Intel 集显精度溢出时设 1）
     
     # 模型细节
     enable_ctc = True           # 是否启用 CTC 热词检索
@@ -145,10 +171,10 @@ class Qwen3ASRGGUFArgs:
     encoder_backend_fn = ModelPaths.qwen3_asr_gguf_encoder_backend.name
     llm_fn = ModelPaths.qwen3_asr_gguf_llm_decode.name
 
-    # 显卡加速
-    onnx_provider = 'CUDA'       # ONNX 推理后端 (CPU, DML)
-    llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
-    
+    # 显卡加速（默认 CPU，部署时由环境变量覆盖）
+    onnx_provider = _env_str('CW_ONNX_PROVIDER', 'CPU')  # ONNX 推理后端 (CPU/CUDA/DML)
+    llm_use_gpu = _env_bool('CW_LLM_USE_GPU', False)     # 是否启用 GPU 加速 GGUF 模型
+
     # 模型细节
     n_ctx = 2048                # 上下文窗口大小
     chunk_size = 80.0           # 分段长度（秒）
@@ -166,10 +192,10 @@ class ForceAlignerGGUFArgs:
     encoder_backend_fn = ModelPaths.force_aligner_gguf_encoder_backend.name
     llm_fn = ModelPaths.force_aligner_gguf_llm_decode.name
 
-    # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
-    llm_use_gpu = False          # 是否启用 GPU 加速 GGUF 模型
-    
+    # 显卡加速（对齐器独立开关，默认 CPU；对齐器调用稀疏，GPU 收益有限）
+    onnx_provider = _env_str('CW_ALIGNER_ONNX_PROVIDER', 'CPU')  # ONNX 推理后端 (CPU/CUDA/DML)
+    llm_use_gpu = _env_bool('CW_ALIGNER_LLM_USE_GPU', False)     # 是否启用 GPU 加速 GGUF 模型
+
     # 对齐细节
     n_ctx = 3072                # 上下文窗口大小
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
