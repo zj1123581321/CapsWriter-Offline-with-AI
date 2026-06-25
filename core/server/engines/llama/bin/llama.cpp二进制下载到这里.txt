@@ -1,5 +1,17 @@
-二进制下载地址：https://github.com/ggml-org/llama.cpp/releases/download/b7798/llama-b7798-bin-win-vulkan-x64.zip
+llama.cpp 预编译二进制下载（用于 GGUF LLM Decoder 推理：qwen_asr 解码器 / ForceAligner 解码器）
 
-官方已经编译好二进制，下载后解压到这个文件夹即可
+⚠️ 版本必须锁定 b7798（ctypes 绑定按该版 C API 编写，换版本可能符号对不上）。
+加载器已自动适配平台（core/server/engines/llama/llama.py），下载后把解压出的
+所有动态库放进本文件夹即可（加载器只显式加载 libggml / libggml-base / libllama，
+其余后端库由 ggml_backend_load_all() 自动发现，含 GPU 后端）。
 
-脚本需要调用编译好的 dll，用于 LLM Decoder 推理
+各平台下载地址（同一个 release tag b7798）：
+- Windows (Vulkan): https://github.com/ggml-org/llama.cpp/releases/download/b7798/llama-b7798-bin-win-vulkan-x64.zip
+- macOS (Apple Silicon, Metal):
+    https://github.com/ggml-org/llama.cpp/releases/download/b7798/llama-b7798-bin-macos-arm64.tar.gz
+    解压后把 *.dylib 拷进本目录；macOS 需清除下载隔离标记：
+        xattr -dr com.apple.quarantine core/server/engines/llama/bin/
+    Metal 加速由 libggml-metal.dylib 自动启用，无需额外配置。
+- Linux: 见 requirements-server-linux.txt 内 GPU 后端说明（CUDA/Vulkan）。
+
+放好后，文件转录的字级时间戳（.srt）由 ForceAligner 走此后端生成。

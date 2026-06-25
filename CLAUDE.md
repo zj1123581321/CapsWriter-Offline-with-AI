@@ -119,6 +119,7 @@
   - 运行: `python -m pytest tests/ -q`(依赖 `numpy rich websockets colorama pytest`)。
   - **注意**: 根目录 `.gitignore` 用 `test_*.py` 忽略临时脚本,`tests/` 下正式测试靠 `!tests/test_*.py` 例外保留。
 - **真机集成验证**: [`scripts/_verify_mlx_asr.py`](scripts/_verify_mlx_asr.py)(走 ModelLoader 全链路)、[`scripts/_smoke_mlx_subprocess.py`](scripts/_smoke_mlx_subprocess.py)(spawn 子进程冒烟),需 Apple Silicon + `mlx-qwen3-asr`,首次联网下载权重。
+- **Aligner 集成测试**: [`tests/test_aligner_integration.py`](tests/test_aligner_integration.py) 验证外挂 ForceAligner 真实产出字级时间戳。**资产缺失时自动 skip**(其它机/CI 不受影响),本机装好 llama 后端 dylib + Qwen3-ForcedAligner 模型 + `onnxruntime gguf srt soundfile nagisa soynlp` 后转为真实断言。
 
 ## 模型支持 (Models)
 
@@ -136,7 +137,8 @@
 
 ### 辅助模型
 - **Punct-CT-Transformer**: 标点模型（`CTTransformerPuncEngine`），引擎无 PUNC 能力时自动加载。
-- **QwenForceAligner**: 对齐器（`ManagedAlignerProxy` 延迟加载+闲置卸载），用于文件转录时间戳对齐。
+- **QwenForceAligner**: 对齐器（`ManagedAlignerProxy` 延迟加载+闲置卸载），用于文件转录时间戳对齐。仅 `qwen_asr` / `qwen_asr_mlx`（无原生 TIMESTAMPS）会触发；解码器是 GGUF，走 [`engines/llama/`](core/server/engines/llama/) 后端。
+  - **macOS 启用**（让 MLX/GGUF 也能做带字级时间戳的文件转录）：① 下载 b7798 macOS 二进制 dylib 放入 `engines/llama/bin/`（见该目录说明 + `xattr -dr com.apple.quarantine`）；② 下载 `Qwen3-ForcedAligner-0.6B.zip` 解压到 `models/Qwen3-ForcedAligner/`；③ 装 `onnxruntime`。**听写（mic）不需要 aligner**，此步仅文件转录字幕需要。
 
 ### 引擎能力检测
 引擎通过 `EngineCapabilities` 标志位声明能力（`ASR` / `PUNC` / `TIMESTAMPS` / `STREAMING` / `HOTWORDS`）。`ModelLoader` 在加载时智能补丁：若引擎缺少 `PUNC` 则外挂标点模型，若缺少 `TIMESTAMPS` 则外挂对齐器。
