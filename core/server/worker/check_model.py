@@ -56,6 +56,21 @@ def check_model() -> None:
             ModelPaths.qwen3_asr_gguf_encoder_backend,
             ModelPaths.qwen3_asr_gguf_llm_decode,
         ]
+    elif model_type == 'qwen_asr_mlx':
+        # MLX 版模型来源是 HF repo id（库自动下载）或本地目录，
+        # 文件校验语义与其它引擎的本地多文件不同，单独处理并提前返回。
+        from config_server import QwenASRMLXArgs
+        model_ref = QwenASRMLXArgs.model
+        if Path(model_ref).expanduser().exists():
+            logger.info(f"模型文件检查通过 (qwen_asr_mlx, 本地目录: {model_ref})")
+            console.print(f'[green4]模型文件检查通过 (qwen_asr_mlx, 本地目录: {model_ref})', end='\n\n')
+        else:
+            # repo id 旁路：不做本地文件校验，权重由 mlx-qwen3-asr 首次运行联网下载
+            logger.info(f"qwen_asr_mlx 使用 HF repo id: {model_ref}，首次运行将联网下载权重")
+            console.print(
+                f'[green4]qwen_asr_mlx 使用 HF repo id [cyan]{model_ref}[/cyan]，首次运行需联网下载权重',
+                end='\n\n')
+        return
     else:
         error_msg = f"不支持的模型类型: {Config.model_type}"
         logger.error(error_msg)
@@ -67,6 +82,7 @@ def check_model() -> None:
     - 'sensevoice'
     - 'paraformer'
     - 'qwen_asr'
+    - 'qwen_asr_mlx'  (仅 Apple Silicon)
 
         ''', style='bright_red')
         input('按回车退出')

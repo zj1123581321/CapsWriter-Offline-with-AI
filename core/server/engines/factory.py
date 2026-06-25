@@ -3,8 +3,8 @@ from typing import Any, Dict, Type, Optional
 from .base import BaseASREngine, BasePuncEngine, BaseAlignEngine
 from config_server import (
     ServerConfig as Config,
-    ParaformerArgs, SenseVoiceArgs, 
-    FunASRNanoGGUFArgs, Qwen3ASRGGUFArgs,
+    ParaformerArgs, SenseVoiceArgs,
+    FunASRNanoGGUFArgs, Qwen3ASRGGUFArgs, QwenASRMLXArgs,
     ModelPaths, ForceAlignerGGUFArgs
 )
 
@@ -39,11 +39,18 @@ class EngineFactory:
         from .qwen_asr_gguf.asr_engine import QwenASREngine, ASREngineConfig as QwenASRConfig
         return QwenASREngine, QwenASRConfig, Qwen3ASRGGUFArgs
 
+    @staticmethod
+    def _load_qwen_asr_mlx():
+        # 延迟导入：mlx_qwen3_asr 仅 Apple Silicon 可用，import 推迟到选中此引擎时
+        from .qwen_asr_mlx.asr_engine import QwenASRMLXEngine, MLXEngineConfig
+        return QwenASRMLXEngine, MLXEngineConfig, QwenASRMLXArgs
+
     _ASR_LOADERS = {
         'sensevoice': _load_sensevoice,
         'paraformer': _load_paraformer,
         'fun_asr_nano': _load_fun_asr_nano,
-        'qwen_asr': _load_qwen_asr
+        'qwen_asr': _load_qwen_asr,
+        'qwen_asr_mlx': _load_qwen_asr_mlx
     }
 
     @staticmethod

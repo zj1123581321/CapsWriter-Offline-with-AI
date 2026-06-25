@@ -39,7 +39,8 @@ class ServerConfig:
     addr = '0.0.0.0'
     port = '6016'
 
-    # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
+    # 语音模型选择：'qwen_asr', 'qwen_asr_mlx', 'fun_asr_nano', 'sensevoice', 'paraformer'
+    #   'qwen_asr_mlx' 为 Apple MLX 版 Qwen3-ASR，仅 Apple Silicon (arm64 macOS) 可用
     model_type = 'qwen_asr'
 
     format_num = True       # 输出时是否将中文数字转为阿拉伯数字
@@ -180,6 +181,19 @@ class Qwen3ASRGGUFArgs:
     chunk_size = 80.0           # 分段长度（秒）
     memory_num = 1              # 记忆段数
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
+    verbose = False
+
+
+class QwenASRMLXArgs:
+    """Qwen3-ASR MLX (Apple Silicon) 模型参数配置。
+
+    公开类属性会被 EngineFactory 原样展开成 MLXEngineConfig(**...) 的 kwargs，
+    字段名必须与 MLXEngineConfig 的 dataclass 字段严格对应。
+    """
+    # 模型来源：HF repo id（首次运行联网下载）或本地模型目录绝对路径
+    model = _env_str('CW_MLX_MODEL', 'Qwen/Qwen3-ASR-0.6B')
+    dtype = _env_str('CW_MLX_DTYPE', '') or None   # 'float16' / 'bfloat16' / 空=库默认
+    chunk_size = 80.0                              # 单段最大音频时长（秒），超出截断
     verbose = False
 
 
