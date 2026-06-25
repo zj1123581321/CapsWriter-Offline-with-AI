@@ -172,11 +172,13 @@ logs/
 .agent
 
 diag*.py
-test_*.py 
-test_*.ipynb 
-test_*.md 
+test_*.py
+test_*.ipynb
+test_*.md
 test_*.txt
-stocks.txt 
+# 例外：tests/ 下的正式测试套件不受上面临时脚本忽略规则影响
+!tests/test_*.py
+stocks.txt
 example_*.py
 example_.ipynb
 file_*.txt
@@ -191,3 +193,4 @@ models/**/*.cfg
 # llama.cpp 下载的二进制(按需下载，不入库)
 core/server/engines/llama/bin/*.so*
 .venv-test/
+.venv-mlx/

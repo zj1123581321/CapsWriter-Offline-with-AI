@@ -1,0 +1,41 @@
+# CapsWriter-Offline 服务端依赖 —— macOS (Apple Silicon / arm64) 版
+# 与上游 requirements-server.txt 的差异：
+#   - 去掉 onnxruntime-directml (Windows 专属) → 用跨平台 onnxruntime
+#   - 新增 mlx / mlx-qwen3-asr (qwen_asr_mlx 引擎，仅 Apple Silicon)
+#
+# qwen_asr_mlx 引擎说明：
+#   - mlx-qwen3-asr 版本已 pin 至真机核实过 transcribe()/Session 签名的 0.3.5
+#     (transcribe 支持 audio / context / language / return_timestamps 等参数)
+#   - 首次运行 Session('Qwen/Qwen3-ASR-0.6B') 会从 HuggingFace 联网下载权重；
+#     如需离线，把 CW_MLX_MODEL 指向本地模型目录
+#   - sherpa-onnx 仍需保留：model_loader.py 在选择引擎前会无条件 import sherpa_onnx
+
+# ASR core
+sherpa-onnx
+numpy
+gguf
+onnxruntime
+
+# qwen_asr_mlx 引擎 (Apple MLX / Metal，仅 arm64 macOS)
+mlx>=0.18.0
+mlx-qwen3-asr==0.3.5
+
+# basic
+rich
+websockets
+watchdog
+pypinyin
+colorama
+
+# qwen_asr (GGUF) 引擎运行时（与 Linux 版一致，便于同机切换后端）
+soundfile
+srt
+tqdm
+requests
+pyyaml
+nagisa
+soynlp
+
+# 托盘 import 链(即便 enable_tray=False 也在模块加载期被 import)
+markdown
+tkhtmlview

@@ -72,7 +72,14 @@ class QwenASRMLXEngine(BaseASREngine):
 
         kwargs = {"model": config.model}
         if config.dtype:
-            kwargs["dtype"] = config.dtype
+            # Session 期望 mx.Dtype（非字符串，已核 mlx-qwen3-asr 0.3.5 源码无字符串强转），
+            # 把配置里的 dtype 名映射成 mlx.core 的 dtype 对象。
+            import mlx.core as mx
+            if not hasattr(mx, config.dtype):
+                raise RuntimeError(
+                    f"无效的 dtype '{config.dtype}'，应为 mlx.core 支持的 dtype 名（如 float16 / bfloat16）"
+                )
+            kwargs["dtype"] = getattr(mx, config.dtype)
 
         logger.info(f"加载 MLX Qwen3-ASR：model={config.model}, dtype={config.dtype or '默认'}")
         try:
