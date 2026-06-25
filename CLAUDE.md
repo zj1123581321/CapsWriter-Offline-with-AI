@@ -139,6 +139,7 @@
 - **Punct-CT-Transformer**: 标点模型（`CTTransformerPuncEngine`），引擎无 PUNC 能力时自动加载。
 - **QwenForceAligner**: 对齐器（`ManagedAlignerProxy` 延迟加载+闲置卸载），用于文件转录时间戳对齐。仅 `qwen_asr` / `qwen_asr_mlx`（无原生 TIMESTAMPS）会触发；解码器是 GGUF，走 [`engines/llama/`](core/server/engines/llama/) 后端。
   - **macOS 启用**（让 MLX/GGUF 也能做带字级时间戳的文件转录）：① 下载 b7798 macOS 二进制 dylib 放入 `engines/llama/bin/`（见该目录说明 + `xattr -dr com.apple.quarantine`）；② 下载 `Qwen3-ForcedAligner-0.6B.zip` 解压到 `models/Qwen3-ForcedAligner/`；③ 装 `onnxruntime`。**听写（mic）不需要 aligner**，此步仅文件转录字幕需要。
+  - **aligner 默认跑 CPU，是文件转录的耗时大头**：Mac 上设环境变量 `CW_ALIGNER_LLM_USE_GPU=1` 让其 GGUF 解码器走 Metal（实测 60s 音频 aligner RTF 0.109→0.047，端到端 0.181→0.118）。RTF 基准脚本：[`scripts/_bench_mlx_rtf.py`](scripts/_bench_mlx_rtf.py)。
 
 ### 引擎能力检测
 引擎通过 `EngineCapabilities` 标志位声明能力（`ASR` / `PUNC` / `TIMESTAMPS` / `STREAMING` / `HOTWORDS`）。`ModelLoader` 在加载时智能补丁：若引擎缺少 `PUNC` 则外挂标点模型，若缺少 `TIMESTAMPS` 则外挂对齐器。
