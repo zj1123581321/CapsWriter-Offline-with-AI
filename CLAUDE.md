@@ -114,6 +114,12 @@
 - **策略**: 所有 Python 依赖放入 `internal/`。根目录仅保留配置文件、源码入口 ([`start_*.py`](start_server.py))、核心源码 ([`core/`](core/))、模型文件夹 ([`models/`](models/)) 和说明文档。
 - **PyInstaller 6.0+**: 使用现代化打包配置，支持 CUDA provider 可选收集。
 
+## 测试 (Testing)
+- **正式单测**: [`tests/`](tests/) 目录,pytest。`qwen_asr_mlx` 引擎逻辑通过注入假 `mlx_qwen3_asr` 模块测试(见 [`tests/conftest.py`](tests/conftest.py)),**无需真机 MLX**,覆盖能力声明、空音频早退、超长截断、语言映射、dtype 映射、工厂 Args→Config 展开、check_model 旁路。
+  - 运行: `python -m pytest tests/ -q`(依赖 `numpy rich websockets colorama pytest`)。
+  - **注意**: 根目录 `.gitignore` 用 `test_*.py` 忽略临时脚本,`tests/` 下正式测试靠 `!tests/test_*.py` 例外保留。
+- **真机集成验证**: [`scripts/_verify_mlx_asr.py`](scripts/_verify_mlx_asr.py)(走 ModelLoader 全链路)、[`scripts/_smoke_mlx_subprocess.py`](scripts/_smoke_mlx_subprocess.py)(spawn 子进程冒烟),需 Apple Silicon + `mlx-qwen3-asr`,首次联网下载权重。
+
 ## 模型支持 (Models)
 
 ### ASR 引擎
@@ -124,6 +130,9 @@
 | `sensevoice` | `SenseVoiceEngine` | [`engines/sensevoice_onnx/`](core/server/engines/sensevoice_onnx/) | ASR + PUNC + HOTWORDS + TIMESTAMPS | 自有 ONNX 推理，多语言（中英日韩粤） |
 | `fun_asr_nano` | `FunASREngine` | [`engines/fun_asr_gguf/`](core/server/engines/fun_asr_gguf/) | ASR + PUNC + HOTWORDS + TIMESTAMPS | GGUF LLM 解码器 + ONNX 编码器/CTC，最准 |
 | `qwen_asr` | `QwenASREngine` | [`engines/qwen_asr_gguf/`](core/server/engines/qwen_asr_gguf/) | ASR + PUNC | GGUF 版 Qwen3-ASR 模型 |
+| `qwen_asr_mlx` | `QwenASRMLXEngine` | [`engines/qwen_asr_mlx/`](core/server/engines/qwen_asr_mlx/) | ASR + PUNC | Apple MLX/Metal 版 Qwen3-ASR，**仅 Apple Silicon**。推理委托第三方包 `mlx-qwen3-asr` 的 `Session`；薄适配层，延迟导入；模型默认 HF repo id（首次联网下载，`CW_MLX_MODEL` 可指本地目录）。初版不支持 context、不暴露原生时间戳（交外挂 Aligner） |
+
+> **`qwen_asr_mlx` 说明**：与 `qwen_asr`(GGUF) 是同一模型 Qwen3-ASR 的不同后端，Mac 用 MLX 享 GPU 原生加速、Win/Linux 用 GGUF。依赖见 [`requirements-server-macos.txt`](requirements-server-macos.txt)（pin `mlx-qwen3-asr==0.3.5`，保留 `sherpa-onnx`）。验证脚本：[`scripts/_smoke_mlx_subprocess.py`](scripts/_smoke_mlx_subprocess.py)（spawn 子进程冒烟）、[`scripts/_verify_mlx_asr.py`](scripts/_verify_mlx_asr.py)（走 ModelLoader 全链路）。新增 ASR 引擎时除 `factory.py`/`config_server.py` 外，**务必同步改 [`core/server/worker/check_model.py`](core/server/worker/check_model.py)**——它在子进程启动前校验 `model_type`，漏改会 `sys.exit(1)`。
 
 ### 辅助模型
 - **Punct-CT-Transformer**: 标点模型（`CTTransformerPuncEngine`），引擎无 PUNC 能力时自动加载。
