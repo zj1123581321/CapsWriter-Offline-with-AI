@@ -10,14 +10,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------------------
 # 部署环境覆盖 (Deployment Override)
-# master 主线默认全 CPU；GPU 部署（如 Linux + CUDA/Vulkan）通过环境变量切换，
-# 无需改动源码。可用变量：
+# master 主线一份代码同时支持 Win/Linux/Mac 多平台、多部署实例：部署差异（引擎、
+# 端口、GPU 开关）一律通过环境变量切换，无需改动源码，避免代码漂移。可用变量：
+#   --- 部署标识（区分同机多实例）---
+#   CW_MODEL_TYPE             ASR 引擎：qwen_asr(默认)/qwen_asr_mlx/fun_asr_nano/sensevoice/paraformer
+#   CW_PORT                   WebSocket 监听端口：6016(默认)
+#   CW_ADDR                   WebSocket 监听地址：0.0.0.0(默认)
+#   --- GPU/后端加速 ---
 #   CW_ONNX_PROVIDER          ONNX 后端：CPU(默认)/CUDA/DML/TRT   —— SenseVoice/FunASR/Qwen
 #   CW_LLM_USE_GPU            GGUF LLM 是否用 GPU：0(默认)/1       —— FunASR/Qwen
 #   CW_VULKAN_FORCE_FP32      Vulkan 强制 FP32：0(默认)/1          —— FunASR
 #   CW_ALIGNER_ONNX_PROVIDER  对齐器 ONNX 后端：CPU(默认)/...      —— ForceAligner
 #   CW_ALIGNER_LLM_USE_GPU    对齐器 GGUF 是否用 GPU：0(默认)/1    —— ForceAligner
 # 示例（Linux GPU 部署）：export CW_ONNX_PROVIDER=CUDA CW_LLM_USE_GPU=1
+# 示例（Mac MLX 部署到 6017）：export CW_MODEL_TYPE=qwen_asr_mlx CW_PORT=6017 CW_ALIGNER_LLM_USE_GPU=1
 # ---------------------------------------------------------------------------
 
 def _env_str(key: str, default: str) -> str:
@@ -36,12 +42,13 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 # 服务端配置
 class ServerConfig:
-    addr = '0.0.0.0'
-    port = '6016'
+    addr = _env_str('CW_ADDR', '0.0.0.0')   # 监听地址，环境变量可覆盖
+    port = _env_str('CW_PORT', '6016')       # 监听端口，环境变量可覆盖（同机多实例靠它区分）
 
     # 语音模型选择：'qwen_asr', 'qwen_asr_mlx', 'fun_asr_nano', 'sensevoice', 'paraformer'
     #   'qwen_asr_mlx' 为 Apple MLX 版 Qwen3-ASR，仅 Apple Silicon (arm64 macOS) 可用
-    model_type = 'qwen_asr'
+    #   部署时由 CW_MODEL_TYPE 覆盖，无需改源码
+    model_type = _env_str('CW_MODEL_TYPE', 'qwen_asr')
 
     format_num = True       # 输出时是否将中文数字转为阿拉伯数字
     format_spell = True     # 输出时是否调整中英之间的空格
