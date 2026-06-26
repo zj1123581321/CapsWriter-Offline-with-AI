@@ -120,6 +120,7 @@
   - **注意**: 根目录 `.gitignore` 用 `test_*.py` 忽略临时脚本,`tests/` 下正式测试靠 `!tests/test_*.py` 例外保留。
 - **真机集成验证**: [`scripts/_verify_mlx_asr.py`](scripts/_verify_mlx_asr.py)(走 ModelLoader 全链路)、[`scripts/_smoke_mlx_subprocess.py`](scripts/_smoke_mlx_subprocess.py)(spawn 子进程冒烟),需 Apple Silicon + `mlx-qwen3-asr`,首次联网下载权重。
 - **Aligner 集成测试**: [`tests/test_aligner_integration.py`](tests/test_aligner_integration.py) 验证外挂 ForceAligner 真实产出字级时间戳。**资产缺失时自动 skip**(其它机/CI 不受影响),本机装好 llama 后端 dylib + Qwen3-ForcedAligner 模型 + `onnxruntime gguf srt soundfile nagisa soynlp` 后转为真实断言。
+- **文件转录端到端验证**: [`scripts/_verify_file_transcribe.py`](scripts/_verify_file_transcribe.py) 连**运行中的 server**(默认 6016,`--server` 指定其它实例如 6017),发 `source='file'` 真实 WebSocket 请求,校验产出真·字级时间戳(单调递增、字间隔非均匀=真实对齐 aligner/原生,非字符均分回退)并落 srt。覆盖 `test_ws_client.py`(走 mic 听写)验不到的文件转录路径。用法 `python scripts/_verify_file_transcribe.py <wav> [--server ws://localhost:6017]`,依赖 `soundfile numpy websockets`。
 
 ## 模型支持 (Models)
 
