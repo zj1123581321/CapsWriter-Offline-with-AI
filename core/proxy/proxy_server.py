@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 from typing import Iterable, Optional
 
 from core.logger import setup_logger
@@ -110,7 +111,7 @@ def _parse_backend_config(backends_config):
             url, weight = item
             weight = float(weight)
 
-        if weight <= 0:
+        if not math.isfinite(weight) or weight <= 0:
             raise ValueError(f"backend weight must be > 0: index={index} url={url!r} weight={weight}")
         parsed.append((url, weight))
     return parsed

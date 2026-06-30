@@ -34,3 +34,12 @@ def test_build_proxy_from_config_rejects_non_positive_weight():
 
     with pytest.raises(ValueError, match="weight"):
         build_proxy_from_config(BadConfig)
+
+
+@pytest.mark.parametrize("weight", [float("nan"), float("inf")])
+def test_build_proxy_from_config_rejects_non_finite_weight(weight):
+    class BadConfig(Config):
+        backends = [("ws://bad", weight)]
+
+    with pytest.raises(ValueError, match="weight"):
+        build_proxy_from_config(BadConfig)
