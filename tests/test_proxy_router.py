@@ -249,3 +249,52 @@ async def test_router_reserves_backend_load_before_connect_completes():
     await router.close_all()
 
     assert selected_urls == ["ws://a", "ws://b"]
+
+
+@pytest.mark.asyncio
+async def test_backend_to_client_records_processing_latency_from_recognition():
+    backend = BackendState(id="backend-0", url="ws://a")
+    router = TaskRouter([backend])
+
+    class FakeBackendWebSocket:
+        def __init__(self):
+            self.messages = [make_recognition("task-a", True)]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self.messages:
+                raise StopAsyncIteration
+            return self.messages.pop(0)
+
+        async def close(self):
+            return None
+
+    class FakeClientWebSocket:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, raw_message):
+            self.sent.append(raw_message)
+
+    backend_ws = FakeBackendWebSocket()
+    client_ws = FakeClientWebSocket()
+    placeholder_task = asyncio.current_task()
+    router.task_sessions["task-a"] = type(
+        "FakeSession",
+        (),
+        {
+            "backend": backend,
+            "backend_ws": backend_ws,
+            "outbound_queue": asyncio.Queue(),
+            "client_to_backend_task": placeholder_task,
+            "backend_to_client_task": placeholder_task,
+        },
+    )()
+
+    await router._backend_to_client("task-a", backend_ws, client_ws)
+
+    assert backend.avg_latency == pytest.approx(1.0)
+    assert backend.latency_samples == 1
+    assert len(client_ws.sent) == 1
