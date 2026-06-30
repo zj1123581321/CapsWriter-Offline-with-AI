@@ -62,7 +62,16 @@
 - **UDP 广播**: 识别结果可通过 UDP 广播到局域网（`udp_broadcast=True`）。
 - **UDP 控制**: 支持通过 UDP 命令远程控制录音启停（`udp_control=True`）。
 
+### 7. ASR 负载均衡代理 (Proxy)
+- **独立组件**: 不改 Server/Client 代码，代理层在 Server 前面做中转
+- **Per-task 路由**: 每个 task_id 独立建后端 WS 连接（Server 的 `AudioCache` 是 per-websocket 的，不能复用连接）
+- **Least-loaded 策略**: 按 `active_tasks` 计数选最空闲后端
+- **健康检查**: 不用 ping/pong（推理时会阻塞 event loop），用连接失败计数（连续 3 次标记 unhealthy）
+- **WS 参数**: `max_size=None`, `ping_interval=None`（与 Server 一致）
+- **使用方式**: 启动 `start_proxy.py`，客户端改 addr:port 指向代理即可
+
 ## 关键路径 (Key Paths)
+- **代理配置**: [`config_proxy.py`](config_proxy.py) — 后端列表、监听地址、健康检查参数。
 - **服务端配置**: [`config_server.py`](config_server.py) — 模型选择、网络、格式化、对齐器。
 - **客户端配置**: [`config_client.py`](config_client.py) — 快捷键、音频、热词、LLM、输出、UDP。
 - **热词**:
@@ -89,6 +98,10 @@
     - [`engines/`](core/server/engines/) - ASR 引擎实现（见下方模型支持）
     - [`merger/`](core/server/merger/) - 文本/Token 合并算法
     - [`formatter/text_formatter.py`](core/server/formatter/text_formatter.py) - `TextFormatter` 后处理
+- **代理核心**: [`core/proxy/`](core/proxy/)
+    - [`proxy_server.py`](core/proxy/proxy_server.py) - `ProxyServer` WS 监听 + 客户端连接处理
+    - [`router.py`](core/proxy/router.py) - `TaskRouter` per-task 路由 + 后端连接生命周期
+    - [`backend.py`](core/proxy/backend.py) - `BackendState` 后端状态跟踪
 - **客户端核心**: [`core/client/`](core/client/)
     - [`app.py`](core/client/app.py) - `CapsWriterClient` 门面类
     - [`state.py`](core/client/state.py) - `ClientState` 共享状态
