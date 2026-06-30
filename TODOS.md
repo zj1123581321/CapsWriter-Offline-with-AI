@@ -30,17 +30,18 @@
 - **现状/起点:** 评分公式已修复零分陷阱，weight 是当前主要杠杆。如果观察到 weight 不足以防止远程后端过载，再实现此项。
 - **Depends on:** v3 部署后观察实际路由行为。
 
-### [ ] 设备算力权重路由
-- **What:** 路由策略从纯 `active_tasks` 计数升级为加权选择,让算力强的设备接更多任务。
-- **Why:** v1 按任务计数做 least-loaded,一个 2 小时文件和一个 5 秒文件都算 1。M1 Max 64GB 和 M2 Pro 16GB 算力差异大,均匀分配不是最优。Codex review 指出此问题。
-- **现状/起点:** `BackendState.active_tasks` 是唯一路由依据。可加 `weight: float` 字段到 `config_proxy.py`,路由时按 `active_tasks / weight` 选最小值。
-- **Depends on:** 代理已上线并稳定运行。
+### [x] 设备算力权重路由 ✅ 2026-06-30
+- **已完成:** 权重路由+RTF 动态评分+unhealthy cooldown 恢复+v3 网络感知诊断。commit c3d8386, 700e9b5, 4be000f。
+- 评分公式: `(active_tasks + 1) * latency / weight`（EWMA alpha=0.2，冷启动前 3 次不参与；过期样本按冷启动默认值处理）
+- config_proxy.py 支持 `(url, weight)` tuple 和环境变量 `url|weight` 格式
+- unhealthy 后端 cooldown 60s 后自动恢复；全部 unhealthy 时降级路由
 
 ### [ ] 后端中途故障音频重发
 - **What:** 代理缓存当前任务的音频数据,后端断开时自动重发到其他后端,而非让客户端重新发起。
 - **Why:** v1 不缓存音频,后端中途挂掉时文件转录需用户重新拖入文件。对 1 万文件批量场景,手动重试不可接受。
 - **现状/起点:** `_client_to_backend` 直接转发不缓存。需在 `TaskSession` 中维护 `sent_messages: list` 缓存已发消息,故障时重放到新后端。内存开销约 5MB/分钟音频,需评估。
-- **Depends on:** 代理已上线并稳定运行。
+- **复杂度注意(Codex review 2026-06-30):** 重发比预期复杂——需给后端发新 task_id(避免 Server 端 AudioCache 冲突),收到结果后将 task_id 重写回原始值再转发客户端;部分结果已发送时需处理去重;缓存内存需设上限(建议 100MB/task)并定义降级行为。建议在权重路由和 RTF 路由落地后再实现。
+- **Depends on:** 权重路由 + RTF 路由先落地。
 
 ### [ ] 动态后端添加/移除
 - **What:** 支持运行时通过 API 或信号添加/移除后端,无需重启代理。

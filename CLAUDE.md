@@ -65,10 +65,12 @@
 ### 7. ASR 负载均衡代理 (Proxy)
 - **独立组件**: 不改 Server/Client 代码，代理层在 Server 前面做中转
 - **Per-task 路由**: 每个 task_id 独立建后端 WS 连接（Server 的 `AudioCache` 是 per-websocket 的，不能复用连接）
-- **Least-loaded 策略**: 按 `active_tasks` 计数选最空闲后端
-- **健康检查**: 不用 ping/pong（推理时会阻塞 event loop），用连接失败计数（连续 3 次标记 unhealthy）
+- **加权路由策略**: 评分公式 `(active_tasks + 1) * latency / weight`，支持设备算力权重（`config_proxy.py` 中配置）和 processing_latency 动态反馈（EWMA alpha=0.2，冷启动前 3 次不参与）
+- **网络感知诊断**: 记录任务端到端延迟（连接建立→收到结果）和推理延迟双指标日志，用于诊断网络 vs 推理瓶颈；EWMA 样本过期（默认 300s）自动重置
+- **健康检查**: 不用 ping/pong（推理时会阻塞 event loop），用连接失败计数（连续 3 次标记 unhealthy）；unhealthy 后端 cooldown 60s 后自动恢复；全部 unhealthy 时降级路由到负载最低的后端
 - **WS 参数**: `max_size=None`, `ping_interval=None`（与 Server 一致）
 - **使用方式**: 启动 `start_proxy.py`，客户端改 addr:port 指向代理即可
+- **设计文档**: [`docs/designs/proxy-concurrent-routing.md`](docs/designs/proxy-concurrent-routing.md)，[`docs/消费方并发改造指南.md`](docs/消费方并发改造指南.md)
 
 ## 关键路径 (Key Paths)
 - **代理配置**: [`config_proxy.py`](config_proxy.py) — 后端列表、监听地址、健康检查参数。
