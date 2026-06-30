@@ -157,6 +157,38 @@ def test_router_ignores_latency_during_warmup():
     assert selected.id == "backend-cold"
 
 
+def test_cold_backend_uses_peer_median_latency_not_fixed_default():
+    """Cold backend (no samples) should use the median latency of warm peers,
+    not a fixed 1.0, so it doesn't steal all traffic from high-latency peers."""
+    warm_a = BackendState(id="warm-a", url="ws://a", weight=1.0)
+    warm_b = BackendState(id="warm-b", url="ws://b", weight=1.0)
+    cold = BackendState(id="cold", url="ws://c", weight=1.0)
+    warm_a.avg_latency = 20.0
+    warm_b.avg_latency = 30.0
+    warm_a.latency_samples = warm_b.latency_samples = 10
+    cold.latency_samples = 0
+    cold.avg_latency = 0.0
+    router = TaskRouter([warm_a, warm_b, cold])
+
+    score_cold = router.backend_score(cold)
+    score_warm_a = router.backend_score(warm_a)
+    assert score_cold >= score_warm_a * 0.5, (
+        f"Cold backend score {score_cold} should not be drastically lower "
+        f"than warm peer score {score_warm_a}"
+    )
+
+
+def test_cold_backend_fallback_when_all_cold():
+    """When all backends are cold, fallback to 1.0 (no peers to reference)."""
+    a = BackendState(id="a", url="ws://a", weight=1.0)
+    b = BackendState(id="b", url="ws://b", weight=1.0)
+    a.latency_samples = b.latency_samples = 0
+    router = TaskRouter([a, b])
+
+    assert router.backend_score(a) == pytest.approx(1.0)
+    assert router.backend_score(b) == pytest.approx(1.0)
+
+
 def test_router_tie_breaks_by_config_order():
     backends = [
         BackendState(id="backend-0", url="ws://a"),

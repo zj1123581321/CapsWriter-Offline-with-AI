@@ -125,14 +125,26 @@ class TaskRouter:
         return (backend.active_tasks + 1) * latency / backend.weight
 
     def _latency_for_score(self, backend: BackendState) -> float:
-        if backend.latency_samples < 3 or backend.avg_latency <= 0:
+        if backend.latency_samples >= 3 and backend.avg_latency > 0:
+            if (
+                backend.last_latency_time > 0
+                and monotonic() - backend.last_latency_time > self.latency_ttl_seconds
+            ):
+                return self._peer_median_latency(backend)
+            return backend.avg_latency
+        return self._peer_median_latency(backend)
+
+    def _peer_median_latency(self, exclude: BackendState) -> float:
+        """Return median latency of warm peers, or 1.0 if no peers have data."""
+        warm = sorted(
+            b.avg_latency
+            for b in self.backends
+            if b is not exclude and b.latency_samples >= 3 and b.avg_latency > 0
+        )
+        if not warm:
             return 1.0
-        if (
-            backend.last_latency_time > 0
-            and monotonic() - backend.last_latency_time > self.latency_ttl_seconds
-        ):
-            return 1.0
-        return backend.avg_latency
+        mid = len(warm) // 2
+        return warm[mid] if len(warm) % 2 else (warm[mid - 1] + warm[mid]) / 2
 
     def get_backend_for_task(self, task_id: str) -> Optional[BackendState]:
         session = self.task_sessions.get(task_id)
