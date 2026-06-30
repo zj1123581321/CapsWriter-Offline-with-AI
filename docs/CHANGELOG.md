@@ -3,6 +3,7 @@
 ## v2.6
 
 - **ASR 负载均衡代理**：新增 `start_proxy.py` / `config_proxy.py`，支持把多个 CapsWriter Server 按 `task_id` 分发给下游客户端，批量文件转录可并行利用多台设备。
+- **ASR 代理路由增强**：支持后端权重、processing latency 动态评分、unhealthy cooldown 自动恢复、并发路由验证脚本和消费方并发改造指南。
 - **GPU 预加速**：服务端新配置（默认关闭），适用于 Nvidia 独显，录音开始时主动锁定显存高频率，大幅降低模型转录延迟至 0.1s
 - **标点处理优化**：仅对 8 词以内的结果去除末尾标点，长句不再误伤；可通过配置 config_client.py 指定某些程序强制去除标点
 - **带延迟的附加回车**：用于同花顺等场景，输入股票名后等待 0.5s 自动回车切换，可在 config_client.py 配置

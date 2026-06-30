@@ -24,14 +24,17 @@ class ProxyConfig:
     listen_port = 6020
 
     backends = [
-        "ws://mac-studio.local:6016",
-        "ws://mac-mini.local:6016",
-        "ws://pc.local:6016",
+        ("ws://mac-studio.local:6016", 2.0),
+        ("ws://mac-mini.local:6016", 1.0),
+        {"url": "ws://pc.local:6016", "weight": 1.0},
     ]
 
     max_connect_failures = 3
+    cooldown_seconds = 60
     log_level = "DEBUG"
 ```
+
+`backends` 仍兼容纯字符串地址，默认 `weight=1.0`。通过环境变量 `CW_PROXY_BACKENDS` 配置时，可用 `url|weight` 格式，例如 `ws://mac-studio.local:6016|2.0,ws://mac-mini.local:6016|1.0`。
 
 3. 启动代理：
 
@@ -51,7 +54,10 @@ URI = "ws://<proxy-host>:6020"
 
 - 每个新的 `task_id` 会创建一条独立的后端 WebSocket 连接。
 - 同一个 `task_id` 后续所有音频帧都会走同一个后端连接。
-- 不同 `task_id` 会按后端 `active_tasks` 计数选择当前最空闲的后端。
+- 不同 `task_id` 会按后端评分选择当前最合适的后端：`active_tasks * avg_latency / weight`。
+- `weight` 表示静态算力权重，必须大于 `0`。例如 `2.0` 表示同等条件下可承担约两倍任务。
+- `avg_latency` 来自后端 `RecognitionMessage.time_complete - time_submit` 的 EWMA，`alpha=0.2`。
+- 每个后端前 3 个 latency 样本处于冷启动阶段，不参与评分；异常 latency（小于 0 或大于 60 秒）会被忽略并记录 WARNING。
 - 多个后端负载相同时，按 `config_proxy.py` 中的配置顺序选择。
 - 收到后端返回的最终 `RecognitionMessage`（`is_final=true`）后，代理关闭该任务的后端连接并释放负载计数。
 
@@ -62,7 +68,8 @@ URI = "ws://<proxy-host>:6020"
 - 代理不使用 ping/pong 健康检查，避免后端推理阻塞事件循环时误判。
 - 新任务连接后端失败会累加 `consecutive_failures`。
 - 连续失败达到 `max_connect_failures` 后，该后端标记为 unhealthy，后续新任务不会再分配给它。
-- 所有后端都 unhealthy 时，代理会关闭客户端连接并返回 WebSocket code `1013`。
+- unhealthy 后端超过 `cooldown_seconds` 后会自动恢复为 healthy，并清零 `consecutive_failures`。
+- 所有后端都 unhealthy 时，代理会降级选择 cooldown 中 `active_tasks` 最少的后端并记录 WARNING。
 - 任务进行中后端断开时，代理关闭客户端连接；v1 不缓存音频，需要下游重新发起该任务。
 
 ## 日志
@@ -73,7 +80,7 @@ URI = "ws://<proxy-host>:6020"
 logs/proxy_latest.log
 ```
 
-日志会记录新任务路由到哪个后端、后端连接失败次数、任务释放后的活跃任务数等信息。
+日志会记录新任务路由到哪个后端、后端连接失败次数、任务释放后的活跃任务数、路由 `score`、后端 `avg_latency`、异常 latency 和 cooldown 恢复事件。
 
 ## 验证
 
@@ -89,3 +96,8 @@ python -m pytest tests/test_proxy_*.py -q
 python scripts/_verify_dictation.py --server ws://localhost:6020
 ```
 
+并发路由回归验证可直接运行内置 mock 后端脚本：
+
+```bash
+python scripts/_verify_proxy_concurrent.py
+```
