@@ -74,6 +74,18 @@ URI = "ws://<proxy-host>:6020"
 - 所有后端都 unhealthy 时，代理会降级选择 cooldown 中 `active_tasks` 最少的后端并记录 WARNING。
 - 任务进行中后端断开时，代理关闭客户端连接；v1 不缓存音频，需要下游重新发起该任务。
 
+## 状态查看
+
+代理在同一个监听端口提供只读状态页，不需要额外端口或依赖：
+
+```bash
+curl http://localhost:6020/status
+```
+
+`GET /status` 默认返回 JSON，包含每个后端的原始状态字段：`active_tasks`、`healthy`、`avg_latency`、`weight`、`consecutive_failures`、`last_failure_time`、`latency_samples`，以及最近 1000 条任务完成历史的统计和最近记录。状态接口不展示路由计算后的 `score`。
+
+浏览器访问 `http://localhost:6020/status`，或请求 `GET /status?html`，会返回格式化 HTML 页面，便于直接查看后端健康、负载和近期任务完成情况。
+
 ## 日志
 
 代理复用项目的日志系统，日志文件为：
@@ -84,12 +96,14 @@ logs/proxy_latest.log
 
 日志会记录新任务路由到哪个后端、后端连接失败次数、任务完成时的推理延迟和端到端延迟、任务释放后的活跃任务数、路由 `score`、后端 `avg_latency`、异常 latency 和 cooldown 恢复事件。
 
+日志时间戳包含日期和时间，例如 `2026-06-30 12:34:56.789`。日志文件按大小轮转，保留 5 份备份。
+
 ## 验证
 
 单元与轻量集成测试：
 
 ```bash
-python -m pytest tests/test_proxy_*.py -q
+python -m pytest tests/test_proxy_*.py tests/test_logger.py -q
 ```
 
 真实端到端验证时，先启动至少一台后端 Server 和代理，再让验证脚本连接代理：
