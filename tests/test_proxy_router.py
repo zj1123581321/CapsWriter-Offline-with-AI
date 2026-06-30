@@ -119,6 +119,29 @@ def test_router_deprioritizes_idle_remote_backend_with_high_latency_and_low_weig
     assert selected.id == "lan"
 
 
+def test_router_expires_stale_latency_to_allow_backend_recovery(monkeypatch):
+    now = {"value": 1000.0}
+    monkeypatch.setattr("core.proxy.router.monotonic", lambda: now["value"])
+    monkeypatch.setattr("core.proxy.backend.monotonic", lambda: 1001.0)
+    recovered = BackendState(id="recovered", url="ws://recovered", weight=1.0)
+    current = BackendState(id="current", url="ws://current", weight=1.0)
+    recovered.avg_latency = 300.0
+    current.avg_latency = 1.0
+    recovered.latency_samples = current.latency_samples = 4
+    recovered.last_latency_time = 600.0
+    current.last_latency_time = 990.0
+    router = TaskRouter([recovered, current], latency_ttl_seconds=300)
+
+    selected = router.select_backend()
+
+    assert selected.id == "recovered"
+
+    recovered.record_processing_latency(1.0, latency_ttl_seconds=300)
+    now["value"] = 1002.0
+
+    assert router.select_backend().id == "recovered"
+
+
 def test_router_ignores_latency_during_warmup():
     cold_fast = BackendState(id="backend-cold", url="ws://a", weight=1.0)
     warm_slow = BackendState(id="backend-warm", url="ws://b", weight=1.0)
@@ -411,9 +434,10 @@ async def test_backend_to_client_skips_invalid_latency_but_still_forwards_messag
 async def test_backend_to_client_logs_end_to_end_latency_only_for_matching_final(monkeypatch):
     backend = BackendState(id="backend-0", url="ws://a")
     router = TaskRouter([backend])
-    times = iter([10.0, 11.0, 12.0, 13.5])
+    backend_times = iter([101.0, 102.0, 103.0])
     infos = []
-    monkeypatch.setattr("core.proxy.router.time.time", lambda: next(times))
+    monkeypatch.setattr("core.proxy.backend.monotonic", lambda: next(backend_times))
+    monkeypatch.setattr("core.proxy.router.monotonic", lambda: 103.5)
     monkeypatch.setattr(
         "core.proxy.router.logger.info",
         lambda message, *args, **kwargs: infos.append(message % args),
@@ -457,7 +481,7 @@ async def test_backend_to_client_logs_end_to_end_latency_only_for_matching_final
             "outbound_queue": asyncio.Queue(),
             "client_to_backend_task": placeholder_task,
             "backend_to_client_task": placeholder_task,
-            "start_time": 10.0,
+            "start_time": 100.0,
         },
     )()
 

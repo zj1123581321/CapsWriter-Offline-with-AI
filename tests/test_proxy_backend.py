@@ -92,6 +92,32 @@ def test_backend_records_processing_latency_with_ewma():
     assert backend.latency_samples == 2
 
 
+def test_backend_records_latency_sample_time(monkeypatch):
+    monkeypatch.setattr("core.proxy.backend.monotonic", lambda: 456.0)
+    backend = BackendState(id="backend-0", url="ws://localhost:6016")
+
+    assert backend.record_processing_latency(2.0) is True
+
+    assert backend.last_latency_time == 456.0
+
+
+def test_backend_resets_stale_latency_window(monkeypatch):
+    monkeypatch.setattr("core.proxy.backend.monotonic", lambda: 1000.0)
+    backend = BackendState(
+        id="backend-0",
+        url="ws://localhost:6016",
+        avg_latency=300.0,
+        latency_samples=4,
+        last_latency_time=600.0,
+    )
+
+    assert backend.record_processing_latency(1.0, latency_ttl_seconds=300) is True
+
+    assert backend.avg_latency == pytest.approx(1.0)
+    assert backend.latency_samples == 1
+    assert backend.last_latency_time == 1000.0
+
+
 def test_backend_rejects_invalid_processing_latency(monkeypatch):
     warnings = []
     monkeypatch.setattr(

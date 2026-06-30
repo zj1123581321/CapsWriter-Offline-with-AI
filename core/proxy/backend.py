@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 import math
 from dataclasses import dataclass
+from time import monotonic
 
 from core.logger import get_logger
 
@@ -27,6 +28,7 @@ class BackendState:
     last_result_time: float = 0.0
     avg_latency: float = 0.0
     latency_samples: int = 0
+    last_latency_time: float = 0.0
     max_connect_failures: int = 3
 
     def acquire_task(self) -> None:
@@ -49,7 +51,7 @@ class BackendState:
     def record_result(self) -> None:
         self.last_result_time = time.time()
 
-    def record_processing_latency(self, latency: float) -> bool:
+    def record_processing_latency(self, latency: float, latency_ttl_seconds: int = 300) -> bool:
         if not math.isfinite(latency) or latency < 0 or latency > 300:
             logger.warning(
                 "异常 processing_latency 已排除: backend=%s latency=%.3f",
@@ -58,9 +60,16 @@ class BackendState:
             )
             return False
 
-        if self.latency_samples == 0:
+        now = monotonic()
+        latency_is_stale = (
+            self.last_latency_time > 0
+            and now - self.last_latency_time > latency_ttl_seconds
+        )
+        if self.latency_samples == 0 or latency_is_stale:
             self.avg_latency = latency
+            self.latency_samples = 1
         else:
             self.avg_latency = (self.avg_latency * 0.8) + (latency * 0.2)
-        self.latency_samples += 1
+            self.latency_samples += 1
+        self.last_latency_time = now
         return True
