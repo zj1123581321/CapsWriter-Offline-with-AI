@@ -166,7 +166,13 @@ class TaskRouter:
             return_exceptions=True,
         )
 
-    async def close_session(self, task_id: str, status: Optional[str] = None) -> None:
+    async def close_session(
+        self,
+        task_id: str,
+        status: Optional[str] = None,
+        audio_duration: float = 0.0,
+        inference_latency: float = 0.0,
+    ) -> None:
         session = self.task_sessions.pop(task_id, None)
         if session is None:
             return
@@ -178,6 +184,8 @@ class TaskRouter:
                 backend_id=session.backend.id,
                 status=status,
                 duration=monotonic() - session.start_time,
+                audio_duration=audio_duration,
+                inference_latency=inference_latency,
             )
         await session.outbound_queue.put(None)
 
@@ -304,9 +312,12 @@ class TaskRouter:
                 await client_ws.send(raw_message)
                 if recognition_task_id(raw_message) == task_id and is_final_recognition_message(raw_message):
                     try:
-                        inference_latency = self._processing_latency(raw_message)
+                        msg = RecognitionMessage.from_dict(json.loads(raw_message))
+                        inference_latency = float(msg.time_complete) - float(msg.time_submit)
+                        audio_duration = float(msg.duration)
                     except Exception:
                         inference_latency = float("nan")
+                        audio_duration = 0.0
                     end_to_end = monotonic() - session.start_time
                     logger.info(
                         "任务完成: task_id=%s backend=%s inference_latency=%.3f end_to_end=%.3f active_tasks=%s",
@@ -316,7 +327,12 @@ class TaskRouter:
                         end_to_end,
                         session.backend.active_tasks,
                     )
-                    await self.close_session(task_id, status="completed")
+                    await self.close_session(
+                        task_id,
+                        status="completed",
+                        audio_duration=audio_duration,
+                        inference_latency=inference_latency,
+                    )
                     return
         except asyncio.CancelledError:
             raise
@@ -341,15 +357,27 @@ class TaskRouter:
         message = RecognitionMessage.from_dict(json.loads(raw_message))
         return float(message.time_complete) - float(message.time_submit)
 
-    def _record_task_history(self, task_id: str, backend_id: str, status: str, duration: float) -> None:
+    def _record_task_history(
+        self,
+        task_id: str,
+        backend_id: str,
+        status: str,
+        duration: float,
+        audio_duration: float = 0.0,
+        inference_latency: float = 0.0,
+    ) -> None:
         if self.task_history is None:
             return
-        self.task_history.append(
-            {
-                "task_id": task_id,
-                "backend_id": backend_id,
-                "status": status,
-                "duration": duration,
-                "timestamp": time.time(),
-            }
-        )
+        record: dict = {
+            "task_id": task_id,
+            "backend_id": backend_id,
+            "status": status,
+            "duration": duration,
+            "timestamp": time.time(),
+        }
+        if audio_duration > 0:
+            record["audio_duration"] = audio_duration
+            record["inference_latency"] = inference_latency
+            record["rtf"] = inference_latency / audio_duration if audio_duration > 0 else 0.0
+            record["network_latency"] = duration - inference_latency
+        self.task_history.append(record)
