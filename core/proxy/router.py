@@ -114,9 +114,14 @@ class TaskRouter:
 
     async def _open_task_session(self, task_id: str, client_ws) -> TaskSession:
         backend = self.select_backend()
+        backend.acquire_task()
         try:
             backend_ws = await self._connect_backend(backend.url)
+        except asyncio.CancelledError:
+            backend.release_task()
+            raise
         except Exception:
+            backend.release_task()
             backend.record_connect_failure()
             logger.warning(
                 "后端连接失败: backend=%s url=%s failures=%s healthy=%s",
@@ -129,7 +134,6 @@ class TaskRouter:
             raise
 
         backend.record_connect_success()
-        backend.acquire_task()
         outbound_queue = asyncio.Queue()
         session = TaskSession(
             task_id=task_id,
@@ -204,4 +208,3 @@ class TaskRouter:
             except Exception:
                 logger.debug("客户端连接关闭失败: task_id=%s", task_id, exc_info=True)
             raise
-

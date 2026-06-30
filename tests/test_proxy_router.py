@@ -1,6 +1,7 @@
 # coding: utf-8
 
 import json
+import asyncio
 
 import pytest
 
@@ -105,3 +106,56 @@ def test_router_keeps_task_affinity_for_existing_session():
     )()
 
     assert router.get_backend_for_task("task-a") is backends[1]
+
+
+@pytest.mark.asyncio
+async def test_router_reserves_backend_load_before_connect_completes():
+    backends = [
+        BackendState(id="backend-0", url="ws://a"),
+        BackendState(id="backend-1", url="ws://b"),
+    ]
+    selected_urls = []
+    connect_started = asyncio.Event()
+    release_connect = asyncio.Event()
+
+    class FakeBackendWebSocket:
+        async def send(self, _raw_message):
+            return None
+
+        async def close(self):
+            return None
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(60)
+
+    class FakeClientWebSocket:
+        async def send(self, _raw_message):
+            return None
+
+        async def close(self, *args, **kwargs):
+            return None
+
+    async def delayed_connect(url):
+        selected_urls.append(url)
+        connect_started.set()
+        await release_connect.wait()
+        return FakeBackendWebSocket()
+
+    router = TaskRouter(backends, connect_func=delayed_connect)
+
+    first = asyncio.create_task(
+        router.route_client_message(make_audio("task-a"), FakeClientWebSocket())
+    )
+    await connect_started.wait()
+    second = asyncio.create_task(
+        router.route_client_message(make_audio("task-b"), FakeClientWebSocket())
+    )
+    await asyncio.sleep(0)
+    release_connect.set()
+    await asyncio.gather(first, second)
+    await router.close_all()
+
+    assert selected_urls == ["ws://a", "ws://b"]
