@@ -34,8 +34,9 @@ Repo: zj1123581321/CapsWriter-Offline-with-AI
 
 ## Accepted Scope (added to this plan)
 - 写并发测试脚本，验证多任务同时路由到不同后端、结果正确回送、故障行为
-- 设备算力权重路由：config_proxy.py 加 weight 字段，select_backend 改为 active_tasks/weight
-- RTF 加权路由：从 RecognitionMessage 的 time_submit/time_complete 计算 processing_latency（注意：不是真正的 RTF，因为缺少音频时长字段）。EWMA alpha=0.2，冷启动前 3 次不参与路由。异常值（<0 或 >60s）记 WARNING 并排除。
+- 设备算力权重路由：config_proxy.py 加 weight 字段，select_backend 改为 least-connections 策略
+- **路由评分公式（2026-06-30 修正）**: `(active_tasks + 1) / weight + latency * 1e-6`。active_tasks 为主确保任务均匀分散，latency 仅作同等负载时的 tiebreaker。之前的公式 `(active_tasks+1) * latency / weight` 因 latency 方差过大（10-300x）导致所有任务堆积到延迟最低的单台后端。
+- processing_latency 追踪：从 RecognitionMessage 的 time_submit/time_complete 计算（注意：不是真正的 RTF，因为缺少音频时长字段）。EWMA alpha=0.2，冷启动前 3 次不参与路由。异常值（<0 或 >300s）记 WARNING 并排除，同时重置 EWMA 避免僵尸惩罚。
 - 后端健康恢复：unhealthy 后端 cooldown_seconds（默认 60s，可配置）后同时重置 consecutive_failures=0 和 healthy=True。全部后端 unhealthy 时，降级选 cooldown 中 active_tasks 最少的。
 - weight > 0 启动时校验，防止除零崩溃
 - 全功能可观测性日志（权重评分、RTF 统计、健康恢复事件）
