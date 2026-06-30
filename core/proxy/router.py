@@ -8,7 +8,7 @@ import json
 import time
 from dataclasses import dataclass
 from time import monotonic
-from typing import Awaitable, Callable, Dict, Iterable, Optional
+from typing import Awaitable, Callable, Deque, Dict, Iterable, Optional
 
 from core.logger import get_logger
 from core.protocol import AudioMessage, RecognitionMessage
@@ -63,12 +63,14 @@ class TaskRouter:
         connect_func: Optional[ConnectFunc] = None,
         cooldown_seconds: int = 60,
         latency_ttl_seconds: int = 300,
+        task_history: Optional[Deque[dict]] = None,
     ):
         self.backends = list(backends)
         self.task_sessions: Dict[str, TaskSession] = {}
         self._connect_func = connect_func
         self.cooldown_seconds = cooldown_seconds
         self.latency_ttl_seconds = latency_ttl_seconds
+        self.task_history = task_history
 
     def select_backend(self) -> BackendState:
         if not self.backends:
@@ -160,16 +162,23 @@ class TaskRouter:
     async def close_all(self) -> None:
         task_ids = list(self.task_sessions)
         await asyncio.gather(
-            *(self.close_session(task_id) for task_id in task_ids),
+            *(self.close_session(task_id, status="cancelled") for task_id in task_ids),
             return_exceptions=True,
         )
 
-    async def close_session(self, task_id: str) -> None:
+    async def close_session(self, task_id: str, status: Optional[str] = None) -> None:
         session = self.task_sessions.pop(task_id, None)
         if session is None:
             return
 
         session.backend.release_task()
+        if status is not None:
+            self._record_task_history(
+                task_id=task_id,
+                backend_id=session.backend.id,
+                status=status,
+                duration=monotonic() - session.start_time,
+            )
         await session.outbound_queue.put(None)
 
         current = asyncio.current_task()
@@ -202,10 +211,22 @@ class TaskRouter:
             backend_ws = await self._connect_backend(backend.url)
         except asyncio.CancelledError:
             backend.release_task()
+            self._record_task_history(
+                task_id=task_id,
+                backend_id=backend.id,
+                status="cancelled",
+                duration=monotonic() - start_time,
+            )
             raise
         except Exception:
             backend.release_task()
             backend.record_connect_failure(refresh_cooldown=not in_cooldown_fallback)
+            self._record_task_history(
+                task_id=task_id,
+                backend_id=backend.id,
+                status="failed",
+                duration=monotonic() - start_time,
+            )
             logger.warning(
                 "后端连接失败: backend=%s url=%s failures=%s healthy=%s",
                 backend.id,
@@ -269,7 +290,7 @@ class TaskRouter:
             raise
         except Exception:
             logger.warning("客户端到后端转发失败: task_id=%s", task_id, exc_info=True)
-            await self.close_session(task_id)
+            await self.close_session(task_id, status="failed")
             raise
 
     async def _backend_to_client(self, task_id: str, backend_ws, client_ws) -> None:
@@ -295,13 +316,13 @@ class TaskRouter:
                         end_to_end,
                         session.backend.active_tasks,
                     )
-                    await self.close_session(task_id)
+                    await self.close_session(task_id, status="completed")
                     return
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.warning("后端到客户端转发失败: task_id=%s", task_id, exc_info=True)
-            await self.close_session(task_id)
+            await self.close_session(task_id, status="failed")
             try:
                 await client_ws.close()
             except Exception:
@@ -319,3 +340,16 @@ class TaskRouter:
     def _processing_latency(self, raw_message: str) -> float:
         message = RecognitionMessage.from_dict(json.loads(raw_message))
         return float(message.time_complete) - float(message.time_submit)
+
+    def _record_task_history(self, task_id: str, backend_id: str, status: str, duration: float) -> None:
+        if self.task_history is None:
+            return
+        self.task_history.append(
+            {
+                "task_id": task_id,
+                "backend_id": backend_id,
+                "status": status,
+                "duration": duration,
+                "timestamp": time.time(),
+            }
+        )
