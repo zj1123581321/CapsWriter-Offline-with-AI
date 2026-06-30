@@ -38,9 +38,10 @@ class BackendState:
         self.consecutive_failures = 0
         self.healthy = True
 
-    def record_connect_failure(self) -> None:
+    def record_connect_failure(self, refresh_cooldown: bool = True) -> None:
         self.consecutive_failures += 1
-        self.last_failure_time = time.time()
+        if refresh_cooldown:
+            self.last_failure_time = time.time()
         if self.consecutive_failures >= self.max_connect_failures:
             self.healthy = False
 

@@ -165,6 +165,11 @@ class TaskRouter:
 
     async def _open_task_session(self, task_id: str, client_ws) -> TaskSession:
         backend = self.select_backend()
+        in_cooldown_fallback = (
+            not backend.healthy
+            and backend.last_failure_time > 0
+            and time.time() - backend.last_failure_time < self.cooldown_seconds
+        )
         backend.acquire_task()
         try:
             backend_ws = await self._connect_backend(backend.url)
@@ -173,7 +178,7 @@ class TaskRouter:
             raise
         except Exception:
             backend.release_task()
-            backend.record_connect_failure()
+            backend.record_connect_failure(refresh_cooldown=not in_cooldown_fallback)
             logger.warning(
                 "后端连接失败: backend=%s url=%s failures=%s healthy=%s",
                 backend.id,
@@ -265,8 +270,8 @@ class TaskRouter:
     def _record_backend_latency(self, backend: BackendState, raw_message: str) -> None:
         try:
             message = RecognitionMessage.from_dict(json.loads(raw_message))
+            latency = float(message.time_complete) - float(message.time_submit)
+            backend.record_processing_latency(latency)
         except Exception:
             logger.debug("无法解析后端 RecognitionMessage，跳过延迟统计: backend=%s", backend.id, exc_info=True)
             return
-
-        backend.record_processing_latency(message.time_complete - message.time_submit)

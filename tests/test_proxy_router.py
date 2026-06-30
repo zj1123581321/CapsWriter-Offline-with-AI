@@ -252,6 +252,29 @@ async def test_router_reserves_backend_load_before_connect_completes():
 
 
 @pytest.mark.asyncio
+async def test_in_cooldown_fallback_failure_does_not_extend_cooldown(monkeypatch):
+    monkeypatch.setattr("core.proxy.router.time.time", lambda: 120.0)
+    backend = BackendState(
+        id="backend-0",
+        url="ws://a",
+        healthy=False,
+        max_connect_failures=1,
+        last_failure_time=100.0,
+    )
+
+    async def failing_connect(_url):
+        raise OSError("still down")
+
+    router = TaskRouter([backend], connect_func=failing_connect, cooldown_seconds=60)
+
+    with pytest.raises(OSError):
+        await router.route_client_message(make_audio("task-a"), object())
+
+    assert backend.healthy is False
+    assert backend.last_failure_time == 100.0
+
+
+@pytest.mark.asyncio
 async def test_backend_to_client_records_processing_latency_from_recognition():
     backend = BackendState(id="backend-0", url="ws://a")
     router = TaskRouter([backend])
@@ -297,4 +320,64 @@ async def test_backend_to_client_records_processing_latency_from_recognition():
 
     assert backend.avg_latency == pytest.approx(1.0)
     assert backend.latency_samples == 1
+    assert len(client_ws.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_backend_to_client_skips_invalid_latency_but_still_forwards_message():
+    backend = BackendState(id="backend-0", url="ws://a")
+    router = TaskRouter([backend])
+
+    class FakeBackendWebSocket:
+        def __init__(self):
+            self.messages = [
+                json.dumps(
+                    {
+                        "task_id": "task-a",
+                        "is_final": True,
+                        "duration": 1.0,
+                        "time_start": 1.0,
+                        "time_submit": None,
+                        "time_complete": 3.0,
+                        "text": "ok",
+                    }
+                )
+            ]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self.messages:
+                raise StopAsyncIteration
+            return self.messages.pop(0)
+
+        async def close(self):
+            return None
+
+    class FakeClientWebSocket:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, raw_message):
+            self.sent.append(raw_message)
+
+    backend_ws = FakeBackendWebSocket()
+    client_ws = FakeClientWebSocket()
+    placeholder_task = asyncio.current_task()
+    router.task_sessions["task-a"] = type(
+        "FakeSession",
+        (),
+        {
+            "backend": backend,
+            "backend_ws": backend_ws,
+            "outbound_queue": asyncio.Queue(),
+            "client_to_backend_task": placeholder_task,
+            "backend_to_client_task": placeholder_task,
+        },
+    )()
+
+    await router._backend_to_client("task-a", backend_ws, client_ws)
+
+    assert backend.latency_samples == 0
     assert len(client_ws.sent) == 1

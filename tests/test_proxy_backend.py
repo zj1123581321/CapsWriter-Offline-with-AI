@@ -65,6 +65,21 @@ def test_backend_connect_failure_records_failure_time(monkeypatch):
     assert backend.last_failure_time == 123.0
 
 
+def test_backend_connect_failure_can_preserve_cooldown_start(monkeypatch):
+    monkeypatch.setattr("core.proxy.backend.time.time", lambda: 123.0)
+    backend = BackendState(
+        id="backend-0",
+        url="ws://localhost:6016",
+        max_connect_failures=1,
+        last_failure_time=100.0,
+    )
+
+    backend.record_connect_failure(refresh_cooldown=False)
+
+    assert backend.healthy is False
+    assert backend.last_failure_time == 100.0
+
+
 def test_backend_records_processing_latency_with_ewma():
     backend = BackendState(id="backend-0", url="ws://localhost:6016")
 
