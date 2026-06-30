@@ -1,0 +1,8 @@
+# coding: utf-8
+
+from core.proxy.proxy_server import run_proxy
+
+
+if __name__ == "__main__":
+    run_proxy()
+
