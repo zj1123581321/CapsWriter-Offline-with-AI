@@ -175,3 +175,36 @@ async def test_task_completion_recorded_in_history():
     assert payload["task_history"]["recent"][-1]["task_id"] == "task-history"
     assert payload["task_history"]["recent"][-1]["backend_id"] == "backend-0"
     assert payload["task_history"]["recent"][-1]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_records_failed_task_history():
+    backend_started = asyncio.Event()
+    release_backend = asyncio.Event()
+
+    async def backend_handler(ws):
+        await ws.recv()
+        backend_started.set()
+        await release_backend.wait()
+
+    async with websockets.serve(backend_handler, "127.0.0.1", 0, max_size=None) as backend_server:
+        backend_port = backend_server.sockets[0].getsockname()[1]
+        proxy = ProxyServer(
+            "127.0.0.1",
+            0,
+            [BackendState(id="backend-0", url=f"ws://127.0.0.1:{backend_port}")],
+        )
+        async with proxy.serve() as proxy_ws_server:
+            proxy_port = proxy_ws_server.sockets[0].getsockname()[1]
+            async with websockets.connect(f"ws://127.0.0.1:{proxy_port}", max_size=None) as client:
+                await client.send(make_audio("task-disconnect"))
+                await asyncio.wait_for(backend_started.wait(), timeout=5)
+
+            _, _, body = await fetch_status(proxy_port)
+            release_backend.set()
+
+    payload = json.loads(body)
+
+    assert payload["task_history"]["failed"] >= 1
+    assert payload["task_history"]["recent"][-1]["task_id"] == "task-disconnect"
+    assert payload["task_history"]["recent"][-1]["status"] == "failed"

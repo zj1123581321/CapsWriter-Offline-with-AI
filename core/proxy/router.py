@@ -162,7 +162,7 @@ class TaskRouter:
     async def close_all(self) -> None:
         task_ids = list(self.task_sessions)
         await asyncio.gather(
-            *(self.close_session(task_id, status="cancelled") for task_id in task_ids),
+            *(self.close_session(task_id, status="failed") for task_id in task_ids),
             return_exceptions=True,
         )
 
