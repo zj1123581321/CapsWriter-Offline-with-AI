@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from core.logger import get_logger
-from core.protocol import AudioMessage
+from core.protocol import AudioMessage, RecognitionMessage
 
 from .backend import BackendState
 
@@ -58,16 +59,66 @@ class TaskRouter:
         self,
         backends: Iterable[BackendState],
         connect_func: Optional[ConnectFunc] = None,
+        cooldown_seconds: int = 60,
     ):
         self.backends = list(backends)
         self.task_sessions: Dict[str, TaskSession] = {}
         self._connect_func = connect_func
+        self.cooldown_seconds = cooldown_seconds
 
     def select_backend(self) -> BackendState:
+        if not self.backends:
+            raise NoHealthyBackendError("No ASR backend is configured")
+
+        now = time.time()
+        for backend in self.backends:
+            if (
+                not backend.healthy
+                and backend.last_failure_time > 0
+                and now - backend.last_failure_time >= self.cooldown_seconds
+            ):
+                backend.consecutive_failures = 0
+                backend.healthy = True
+                logger.info(
+                    "后端 cooldown 已结束，恢复健康: backend=%s url=%s cooldown_seconds=%s",
+                    backend.id,
+                    backend.url,
+                    self.cooldown_seconds,
+                )
+
         healthy_backends = [backend for backend in self.backends if backend.healthy]
         if not healthy_backends:
-            raise NoHealthyBackendError("No healthy ASR backend is available")
-        return min(healthy_backends, key=lambda backend: backend.active_tasks)
+            selected = min(self.backends, key=lambda backend: backend.active_tasks)
+            logger.warning(
+                "全部后端 unhealthy，降级路由到 cooldown 中负载最低后端: backend=%s active_tasks=%s score=%.6f",
+                selected.id,
+                selected.active_tasks,
+                self.backend_score(selected),
+            )
+            return selected
+
+        selected = min(healthy_backends, key=self.backend_score)
+        logger.info(
+            "后端选择: backend=%s active_tasks=%s weight=%.3f avg_latency=%.3f latency_samples=%s score=%.6f",
+            selected.id,
+            selected.active_tasks,
+            selected.weight,
+            selected.avg_latency,
+            selected.latency_samples,
+            self.backend_score(selected),
+        )
+        logger.debug(
+            "后端延迟状态: %s",
+            ", ".join(
+                f"{backend.id}:avg_latency={backend.avg_latency:.3f},samples={backend.latency_samples}"
+                for backend in self.backends
+            ),
+        )
+        return selected
+
+    def backend_score(self, backend: BackendState) -> float:
+        latency = backend.avg_latency if backend.latency_samples >= 3 and backend.avg_latency > 0 else 1.0
+        return backend.active_tasks * latency / backend.weight
 
     def get_backend_for_task(self, task_id: str) -> Optional[BackendState]:
         session = self.task_sessions.get(task_id)
@@ -149,11 +200,12 @@ class TaskRouter:
         )
         self.task_sessions[task_id] = session
         logger.info(
-            "新任务路由: task_id=%s backend=%s url=%s active_tasks=%s",
+            "新任务路由: task_id=%s backend=%s url=%s active_tasks=%s score=%.6f",
             task_id,
             backend.id,
             backend.url,
             backend.active_tasks,
+            self.backend_score(backend),
         )
         return session
 
@@ -194,6 +246,7 @@ class TaskRouter:
                 if session is None:
                     return
                 session.backend.record_result()
+                self._record_backend_latency(session.backend, raw_message)
                 await client_ws.send(raw_message)
                 if recognition_task_id(raw_message) == task_id and is_final_recognition_message(raw_message):
                     await self.close_session(task_id)
@@ -208,3 +261,12 @@ class TaskRouter:
             except Exception:
                 logger.debug("客户端连接关闭失败: task_id=%s", task_id, exc_info=True)
             raise
+
+    def _record_backend_latency(self, backend: BackendState, raw_message: str) -> None:
+        try:
+            message = RecognitionMessage.from_dict(json.loads(raw_message))
+        except Exception:
+            logger.debug("无法解析后端 RecognitionMessage，跳过延迟统计: backend=%s", backend.id, exc_info=True)
+            return
+
+        backend.record_processing_latency(message.time_complete - message.time_submit)

@@ -18,7 +18,17 @@ def _env_str(key, default):
 def _env_backends(key, default):
     raw = os.environ.get(key)
     if raw:
-        return [s.strip() for s in raw.split(',') if s.strip()]
+        backends = []
+        for item in raw.split(','):
+            item = item.strip()
+            if not item:
+                continue
+            if '|' in item:
+                url, weight = item.rsplit('|', 1)
+                backends.append((url.strip(), float(weight.strip())))
+            else:
+                backends.append(item)
+        return backends
     return default
 
 
@@ -29,9 +39,10 @@ class ProxyConfig:
     listen_port = int(_env_str('CW_PROXY_PORT', '6020'))
 
     backends = _env_backends('CW_PROXY_BACKENDS', [
-        "ws://127.0.0.1:6016",
-        "ws://127.0.0.1:6017",
+        ("ws://127.0.0.1:6016", 1.0),
+        ("ws://127.0.0.1:6017", 1.0),
     ])
 
     max_connect_failures = 3
+    cooldown_seconds = 60
     log_level = "DEBUG"

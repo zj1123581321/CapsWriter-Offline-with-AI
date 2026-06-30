@@ -1,5 +1,7 @@
 # coding: utf-8
 
+import pytest
+
 from core.proxy.backend import BackendState
 
 
@@ -47,3 +49,45 @@ def test_backend_success_resets_failures_and_health():
 
     assert backend.healthy is True
     assert backend.consecutive_failures == 0
+
+
+def test_backend_connect_failure_records_failure_time(monkeypatch):
+    monkeypatch.setattr("core.proxy.backend.time.time", lambda: 123.0)
+    backend = BackendState(
+        id="backend-0",
+        url="ws://localhost:6016",
+        max_connect_failures=1,
+    )
+
+    backend.record_connect_failure()
+
+    assert backend.healthy is False
+    assert backend.last_failure_time == 123.0
+
+
+def test_backend_records_processing_latency_with_ewma():
+    backend = BackendState(id="backend-0", url="ws://localhost:6016")
+
+    assert backend.record_processing_latency(2.0) is True
+    assert backend.avg_latency == pytest.approx(2.0)
+    assert backend.latency_samples == 1
+
+    assert backend.record_processing_latency(4.0) is True
+    assert backend.avg_latency == pytest.approx(2.4)
+    assert backend.latency_samples == 2
+
+
+def test_backend_rejects_invalid_processing_latency(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(
+        "core.proxy.backend.logger.warning",
+        lambda message, *args, **kwargs: warnings.append(message % args),
+    )
+    backend = BackendState(id="backend-0", url="ws://localhost:6016")
+
+    assert backend.record_processing_latency(-1.0) is False
+    assert backend.record_processing_latency(61.0) is False
+
+    assert backend.avg_latency == 0.0
+    assert backend.latency_samples == 0
+    assert any("异常 processing_latency" in message for message in warnings)

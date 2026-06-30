@@ -21,11 +21,13 @@ class ProxyServer:
         listen_addr: str,
         listen_port: int,
         backends: Iterable[BackendState],
+        cooldown_seconds: int = 60,
         log_level: str = "DEBUG",
     ):
         self.listen_addr = listen_addr
         self.listen_port = listen_port
         self.backends = list(backends)
+        self.cooldown_seconds = cooldown_seconds
         self.logger = setup_logger("proxy", level=log_level, log_filename="proxy")
         self._server = None
 
@@ -54,7 +56,7 @@ class ProxyServer:
     async def handle_client(self, client_ws) -> None:
         remote = getattr(client_ws, "remote_address", None)
         self.logger.info("代理客户端已连接: %s", remote)
-        router = TaskRouter(self.backends)
+        router = TaskRouter(self.backends, cooldown_seconds=self.cooldown_seconds)
 
         try:
             async for raw_message in client_ws:
@@ -81,20 +83,40 @@ def build_proxy_from_config(config: Optional[object] = None) -> ProxyServer:
         BackendState(
             id=f"backend-{index}",
             url=url,
+            weight=weight,
             max_connect_failures=config.max_connect_failures,
         )
-        for index, url in enumerate(config.backends)
+        for index, (url, weight) in enumerate(_parse_backend_config(config.backends))
     ]
     return ProxyServer(
         config.listen_addr,
         config.listen_port,
         backends,
+        cooldown_seconds=getattr(config, "cooldown_seconds", 60),
         log_level=getattr(config, "log_level", "DEBUG"),
     )
+
+
+def _parse_backend_config(backends_config):
+    parsed = []
+    for index, item in enumerate(backends_config):
+        if isinstance(item, str):
+            url = item
+            weight = 1.0
+        elif isinstance(item, dict):
+            url = item["url"]
+            weight = float(item.get("weight", 1.0))
+        else:
+            url, weight = item
+            weight = float(weight)
+
+        if weight <= 0:
+            raise ValueError(f"backend weight must be > 0: index={index} url={url!r} weight={weight}")
+        parsed.append((url, weight))
+    return parsed
 
 
 def run_proxy() -> None:
     proxy = build_proxy_from_config()
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(proxy.start())
-

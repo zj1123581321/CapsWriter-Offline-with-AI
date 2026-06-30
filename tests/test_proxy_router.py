@@ -69,6 +69,49 @@ def test_router_selects_least_loaded_backend():
     assert selected.id == "backend-1"
 
 
+def test_router_selects_lowest_weighted_load_backend():
+    backends = [
+        BackendState(id="backend-0", url="ws://a", weight=1.0),
+        BackendState(id="backend-1", url="ws://b", weight=4.0),
+    ]
+    backends[0].active_tasks = 1
+    backends[1].active_tasks = 2
+    router = TaskRouter(backends)
+
+    selected = router.select_backend()
+
+    assert selected.id == "backend-1"
+
+
+def test_router_uses_latency_after_warmup():
+    fast = BackendState(id="backend-fast", url="ws://a", weight=1.0)
+    slow = BackendState(id="backend-slow", url="ws://b", weight=1.0)
+    fast.active_tasks = slow.active_tasks = 1
+    fast.avg_latency = 1.0
+    slow.avg_latency = 4.0
+    fast.latency_samples = slow.latency_samples = 4
+    router = TaskRouter([slow, fast])
+
+    selected = router.select_backend()
+
+    assert selected.id == "backend-fast"
+
+
+def test_router_ignores_latency_during_warmup():
+    cold_fast = BackendState(id="backend-cold", url="ws://a", weight=1.0)
+    warm_slow = BackendState(id="backend-warm", url="ws://b", weight=1.0)
+    cold_fast.active_tasks = warm_slow.active_tasks = 1
+    cold_fast.avg_latency = 0.5
+    warm_slow.avg_latency = 4.0
+    cold_fast.latency_samples = 2
+    warm_slow.latency_samples = 4
+    router = TaskRouter([cold_fast, warm_slow])
+
+    selected = router.select_backend()
+
+    assert selected.id == "backend-cold"
+
+
 def test_router_tie_breaks_by_config_order():
     backends = [
         BackendState(id="backend-0", url="ws://a"),
@@ -81,15 +124,62 @@ def test_router_tie_breaks_by_config_order():
     assert selected.id == "backend-0"
 
 
-def test_router_rejects_when_all_backends_unhealthy():
+def test_router_recovers_unhealthy_backend_after_cooldown(monkeypatch):
+    backend = BackendState(id="backend-0", url="ws://a", healthy=False)
+    backend.consecutive_failures = 3
+    backend.last_failure_time = 10.0
+    monkeypatch.setattr("core.proxy.router.time.time", lambda: 75.0)
+    router = TaskRouter([backend], cooldown_seconds=60)
+
+    selected = router.select_backend()
+
+    assert selected is backend
+    assert backend.healthy is True
+    assert backend.consecutive_failures == 0
+
+
+def test_router_degrades_to_least_loaded_backend_when_all_in_cooldown(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(
+        "core.proxy.router.logger.warning",
+        lambda message, *args, **kwargs: warnings.append(message % args),
+    )
     backends = [
         BackendState(id="backend-0", url="ws://a", healthy=False),
         BackendState(id="backend-1", url="ws://b", healthy=False),
     ]
-    router = TaskRouter(backends)
+    backends[0].active_tasks = 2
+    backends[1].active_tasks = 1
+    router = TaskRouter(backends, cooldown_seconds=60)
+
+    selected = router.select_backend()
+
+    assert selected.id == "backend-1"
+    assert any("全部后端 unhealthy" in message for message in warnings)
+
+
+def test_router_rejects_when_no_backends_configured():
+    router = TaskRouter([])
 
     with pytest.raises(NoHealthyBackendError):
         router.select_backend()
+
+
+def test_router_logs_selected_score(monkeypatch):
+    infos = []
+    monkeypatch.setattr(
+        "core.proxy.router.logger.info",
+        lambda message, *args, **kwargs: infos.append(message % args),
+    )
+    backends = [
+        BackendState(id="backend-0", url="ws://a", weight=2.0),
+        BackendState(id="backend-1", url="ws://b", weight=1.0),
+    ]
+    router = TaskRouter(backends)
+
+    router.select_backend()
+
+    assert any("score=" in message for message in infos)
 
 
 def test_router_keeps_task_affinity_for_existing_session():
