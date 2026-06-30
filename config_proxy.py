@@ -15,9 +15,9 @@ class ProxyConfig:
     listen_port = 6020
 
     backends = [
-        "ws://127.0.0.1:6016",
+        "ws://192.168.31.222:6017",
+        "ws://100.103.92.95:6017",
     ]
 
     max_connect_failures = 3
     log_level = "DEBUG"
-
