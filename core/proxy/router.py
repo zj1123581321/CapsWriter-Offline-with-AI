@@ -7,6 +7,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
+from time import monotonic
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from core.logger import get_logger
@@ -61,11 +62,13 @@ class TaskRouter:
         backends: Iterable[BackendState],
         connect_func: Optional[ConnectFunc] = None,
         cooldown_seconds: int = 60,
+        latency_ttl_seconds: int = 300,
     ):
         self.backends = list(backends)
         self.task_sessions: Dict[str, TaskSession] = {}
         self._connect_func = connect_func
         self.cooldown_seconds = cooldown_seconds
+        self.latency_ttl_seconds = latency_ttl_seconds
 
     def select_backend(self) -> BackendState:
         if not self.backends:
@@ -118,8 +121,18 @@ class TaskRouter:
         return selected
 
     def backend_score(self, backend: BackendState) -> float:
-        latency = backend.avg_latency if backend.latency_samples >= 3 and backend.avg_latency > 0 else 1.0
+        latency = self._latency_for_score(backend)
         return (backend.active_tasks + 1) * latency / backend.weight
+
+    def _latency_for_score(self, backend: BackendState) -> float:
+        if backend.latency_samples < 3 or backend.avg_latency <= 0:
+            return 1.0
+        if (
+            backend.last_latency_time > 0
+            and monotonic() - backend.last_latency_time > self.latency_ttl_seconds
+        ):
+            return 1.0
+        return backend.avg_latency
 
     def get_backend_for_task(self, task_id: str) -> Optional[BackendState]:
         session = self.task_sessions.get(task_id)
@@ -165,7 +178,7 @@ class TaskRouter:
         )
 
     async def _open_task_session(self, task_id: str, client_ws) -> TaskSession:
-        start_time = time.time()
+        start_time = monotonic()
         backend = self.select_backend()
         in_cooldown_fallback = (
             not backend.healthy
@@ -261,7 +274,7 @@ class TaskRouter:
                         inference_latency = self._processing_latency(raw_message)
                     except Exception:
                         inference_latency = float("nan")
-                    end_to_end = time.time() - session.start_time
+                    end_to_end = monotonic() - session.start_time
                     logger.info(
                         "任务完成: task_id=%s backend=%s inference_latency=%.3f end_to_end=%.3f active_tasks=%s",
                         task_id,
@@ -286,7 +299,7 @@ class TaskRouter:
     def _record_backend_latency(self, backend: BackendState, raw_message: str) -> None:
         try:
             latency = self._processing_latency(raw_message)
-            backend.record_processing_latency(latency)
+            backend.record_processing_latency(latency, latency_ttl_seconds=self.latency_ttl_seconds)
         except Exception:
             logger.debug("无法解析后端 RecognitionMessage，跳过延迟统计: backend=%s", backend.id, exc_info=True)
             return

@@ -58,7 +58,7 @@ URI = "ws://<proxy-host>:6020"
 - 不同 `task_id` 会按后端评分选择当前最合适的后端：`(active_tasks + 1) * avg_latency / weight`。
 - `weight` 表示静态算力权重，必须大于 `0`。例如 `2.0` 表示同等条件下可承担约两倍任务。
 - `avg_latency` 来自后端 `RecognitionMessage.time_complete - time_submit` 的 EWMA，`alpha=0.2`。
-- 每个后端前 3 个 latency 样本处于冷启动阶段，不参与评分；异常 latency（小于 0 或大于 300 秒）会被忽略并记录 WARNING。
+- 每个后端前 3 个 latency 样本处于冷启动阶段，不参与评分；超过 300 秒没有刷新过的 latency 样本会按冷启动默认值处理，避免瞬时慢样本长期压制已恢复的后端；异常 latency（小于 0 或大于 300 秒）会被忽略并记录 WARNING。
 - 代理还会记录任务端到端延迟（打开后端连接前到收到最终识别结果），用于诊断网络链路开销；该值不进入 EWMA，也不影响当前路由决策。
 - 多个后端负载相同时，按 `config_proxy.py` 中的配置顺序选择。
 - 收到后端返回的最终 `RecognitionMessage`（`is_final=true`）后，代理关闭该任务的后端连接并释放负载计数。
