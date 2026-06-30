@@ -150,3 +150,19 @@ def test_backend_rejects_nan_processing_latency():
 
     assert backend.avg_latency == 0.0
     assert backend.latency_samples == 0
+
+
+def test_backend_truncation_resets_stale_ewma():
+    """When latency > 300 is rejected, any accumulated EWMA should be reset
+    so the backend is not permanently penalized by stale high values."""
+    backend = BackendState(id="backend-0", url="ws://localhost:6016")
+
+    backend.record_processing_latency(10.0)
+    backend.record_processing_latency(20.0)
+    assert backend.latency_samples == 2
+    assert backend.avg_latency > 0
+
+    assert backend.record_processing_latency(301.0) is False
+
+    assert backend.latency_samples == 0
+    assert backend.avg_latency == 0.0

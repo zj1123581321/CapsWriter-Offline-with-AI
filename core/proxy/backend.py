@@ -58,6 +58,9 @@ class BackendState:
                 self.id,
                 latency,
             )
+            if self.latency_samples > 0:
+                self.avg_latency = 0.0
+                self.latency_samples = 0
             return False
 
         now = monotonic()

@@ -122,7 +122,7 @@ class TaskRouter:
 
     def backend_score(self, backend: BackendState) -> float:
         latency = self._latency_for_score(backend)
-        return (backend.active_tasks + 1) * latency / backend.weight
+        return (backend.active_tasks + 1) / backend.weight + latency * 1e-6
 
     def _latency_for_score(self, backend: BackendState) -> float:
         if backend.latency_samples >= 3 and backend.avg_latency > 0:
