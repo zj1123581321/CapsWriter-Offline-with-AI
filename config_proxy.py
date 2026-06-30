@@ -16,7 +16,7 @@ class ProxyConfig:
 
     backends = [
         "ws://192.168.31.222:6017",
-        "ws://100.103.92.95:6017",
+        "ws://100.103.92.95:6016",
     ]
 
     max_connect_failures = 3
