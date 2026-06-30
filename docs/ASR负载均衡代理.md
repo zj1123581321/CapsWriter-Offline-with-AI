@@ -26,6 +26,7 @@ class ProxyConfig:
     backends = [
         ("ws://mac-studio.local:6016", 2.0),
         ("ws://mac-mini.local:6016", 1.0),
+        ("ws://remote-tailnet.local:6016", 0.3),
         {"url": "ws://pc.local:6016", "weight": 1.0},
     ]
 
@@ -34,7 +35,7 @@ class ProxyConfig:
     log_level = "DEBUG"
 ```
 
-`backends` 仍兼容纯字符串地址，默认 `weight=1.0`。通过环境变量 `CW_PROXY_BACKENDS` 配置时，可用 `url|weight` 格式，例如 `ws://mac-studio.local:6016|2.0,ws://mac-mini.local:6016|1.0`。
+`backends` 仍兼容纯字符串地址，默认 `weight=1.0`。通过环境变量 `CW_PROXY_BACKENDS` 配置时，可用 `url|weight` 格式，例如 `ws://mac-studio.local:6016|2.0,ws://mac-mini.local:6016|1.0`。低带宽远程后端建议先降权，例如 Tailscale 3Mbps 链路可从 `0.3` 起步观察。
 
 3. 启动代理：
 
@@ -54,10 +55,11 @@ URI = "ws://<proxy-host>:6020"
 
 - 每个新的 `task_id` 会创建一条独立的后端 WebSocket 连接。
 - 同一个 `task_id` 后续所有音频帧都会走同一个后端连接。
-- 不同 `task_id` 会按后端评分选择当前最合适的后端：`active_tasks * avg_latency / weight`。
+- 不同 `task_id` 会按后端评分选择当前最合适的后端：`(active_tasks + 1) * avg_latency / weight`。
 - `weight` 表示静态算力权重，必须大于 `0`。例如 `2.0` 表示同等条件下可承担约两倍任务。
 - `avg_latency` 来自后端 `RecognitionMessage.time_complete - time_submit` 的 EWMA，`alpha=0.2`。
-- 每个后端前 3 个 latency 样本处于冷启动阶段，不参与评分；异常 latency（小于 0 或大于 60 秒）会被忽略并记录 WARNING。
+- 每个后端前 3 个 latency 样本处于冷启动阶段，不参与评分；异常 latency（小于 0 或大于 300 秒）会被忽略并记录 WARNING。
+- 代理还会记录任务端到端延迟（打开后端连接前到收到最终识别结果），用于诊断网络链路开销；该值不进入 EWMA，也不影响当前路由决策。
 - 多个后端负载相同时，按 `config_proxy.py` 中的配置顺序选择。
 - 收到后端返回的最终 `RecognitionMessage`（`is_final=true`）后，代理关闭该任务的后端连接并释放负载计数。
 
@@ -80,7 +82,7 @@ URI = "ws://<proxy-host>:6020"
 logs/proxy_latest.log
 ```
 
-日志会记录新任务路由到哪个后端、后端连接失败次数、任务释放后的活跃任务数、路由 `score`、后端 `avg_latency`、异常 latency 和 cooldown 恢复事件。
+日志会记录新任务路由到哪个后端、后端连接失败次数、任务完成时的推理延迟和端到端延迟、任务释放后的活跃任务数、路由 `score`、后端 `avg_latency`、异常 latency 和 cooldown 恢复事件。
 
 ## 验证
 

@@ -50,6 +50,7 @@ class TaskSession:
     outbound_queue: asyncio.Queue
     client_to_backend_task: asyncio.Task
     backend_to_client_task: asyncio.Task
+    start_time: float = 0.0
 
 
 class TaskRouter:
@@ -118,7 +119,7 @@ class TaskRouter:
 
     def backend_score(self, backend: BackendState) -> float:
         latency = backend.avg_latency if backend.latency_samples >= 3 and backend.avg_latency > 0 else 1.0
-        return backend.active_tasks * latency / backend.weight
+        return (backend.active_tasks + 1) * latency / backend.weight
 
     def get_backend_for_task(self, task_id: str) -> Optional[BackendState]:
         session = self.task_sessions.get(task_id)
@@ -164,6 +165,7 @@ class TaskRouter:
         )
 
     async def _open_task_session(self, task_id: str, client_ws) -> TaskSession:
+        start_time = time.time()
         backend = self.select_backend()
         in_cooldown_fallback = (
             not backend.healthy
@@ -202,6 +204,7 @@ class TaskRouter:
             backend_to_client_task=asyncio.create_task(
                 self._backend_to_client(task_id, backend_ws, client_ws)
             ),
+            start_time=start_time,
         )
         self.task_sessions[task_id] = session
         logger.info(
@@ -254,6 +257,19 @@ class TaskRouter:
                 self._record_backend_latency(session.backend, raw_message)
                 await client_ws.send(raw_message)
                 if recognition_task_id(raw_message) == task_id and is_final_recognition_message(raw_message):
+                    try:
+                        inference_latency = self._processing_latency(raw_message)
+                    except Exception:
+                        inference_latency = float("nan")
+                    end_to_end = time.time() - session.start_time
+                    logger.info(
+                        "任务完成: task_id=%s backend=%s inference_latency=%.3f end_to_end=%.3f active_tasks=%s",
+                        task_id,
+                        session.backend.id,
+                        inference_latency,
+                        end_to_end,
+                        session.backend.active_tasks,
+                    )
                     await self.close_session(task_id)
                     return
         except asyncio.CancelledError:
@@ -269,9 +285,12 @@ class TaskRouter:
 
     def _record_backend_latency(self, backend: BackendState, raw_message: str) -> None:
         try:
-            message = RecognitionMessage.from_dict(json.loads(raw_message))
-            latency = float(message.time_complete) - float(message.time_submit)
+            latency = self._processing_latency(raw_message)
             backend.record_processing_latency(latency)
         except Exception:
             logger.debug("无法解析后端 RecognitionMessage，跳过延迟统计: backend=%s", backend.id, exc_info=True)
             return
+
+    def _processing_latency(self, raw_message: str) -> float:
+        message = RecognitionMessage.from_dict(json.loads(raw_message))
+        return float(message.time_complete) - float(message.time_submit)

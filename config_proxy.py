@@ -42,6 +42,7 @@ class ProxyConfig:
     backends = _env_backends('CW_PROXY_BACKENDS', [
         ("ws://127.0.0.1:6016", 1.0),
         ("ws://127.0.0.1:6017", 1.0),
+        # ("ws://remote:6016", 0.3),    # Tailscale 3Mbps - 降权
     ])
 
     max_connect_failures = 3

@@ -50,7 +50,7 @@ class BackendState:
         self.last_result_time = time.time()
 
     def record_processing_latency(self, latency: float) -> bool:
-        if not math.isfinite(latency) or latency < 0 or latency > 60:
+        if not math.isfinite(latency) or latency < 0 or latency > 300:
             logger.warning(
                 "异常 processing_latency 已排除: backend=%s latency=%.3f",
                 self.id,
