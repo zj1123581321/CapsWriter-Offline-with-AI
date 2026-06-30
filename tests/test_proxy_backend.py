@@ -101,11 +101,20 @@ def test_backend_rejects_invalid_processing_latency(monkeypatch):
     backend = BackendState(id="backend-0", url="ws://localhost:6016")
 
     assert backend.record_processing_latency(-1.0) is False
-    assert backend.record_processing_latency(61.0) is False
+    assert backend.record_processing_latency(301.0) is False
 
     assert backend.avg_latency == 0.0
     assert backend.latency_samples == 0
     assert any("异常 processing_latency" in message for message in warnings)
+
+
+def test_backend_accepts_processing_latency_up_to_300_seconds():
+    backend = BackendState(id="backend-0", url="ws://localhost:6016")
+
+    assert backend.record_processing_latency(299.0) is True
+    assert backend.record_processing_latency(300.0) is True
+
+    assert backend.latency_samples == 2
 
 
 def test_backend_rejects_nan_processing_latency():
