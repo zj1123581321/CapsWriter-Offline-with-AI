@@ -67,7 +67,7 @@
 - **Per-task 路由**: 每个 task_id 独立建后端 WS 连接（Server 的 `AudioCache` 是 per-websocket 的，不能复用连接）
 - **Least-connections 路由策略**: 评分公式 `(active_tasks + 1) / weight`，平局时选最久未被选中的后端（`BackendState._last_selected` per-instance 逻辑时钟，不受 unhealthy 后端 cooldown 循环干扰）。支持设备算力权重（`config_proxy.py` 中配置）。processing_latency EWMA（alpha=0.2，异常截断时自动重置）仅用于诊断日志和 `/status` 端点，不参与路由决策
 - **网络感知诊断**: 记录任务端到端延迟（连接建立→收到结果）和推理延迟双指标日志，用于诊断网络 vs 推理瓶颈；EWMA 样本过期（默认 300s）自动重置
-- **健康检查**: 不用 ping/pong（推理时会阻塞 event loop），用连接失败计数（连续 3 次标记 unhealthy）；unhealthy 后端 cooldown 60s 后自动恢复；全部 unhealthy 时降级路由到负载最低的后端
+- **健康检查**: 不用 ping/pong（推理时会阻塞 event loop），用连接失败计数（连续 3 次标记 unhealthy）；后台探活任务定期对 unhealthy 后端做轻量 connect+close（指数退避 60s→120s→300s 封顶），探活成功才恢复 healthy；连接失败时自动重试下一个 healthy 后端，不丢失任务
 - **WS 参数**: `max_size=None`, `ping_interval=None`（与 Server 一致）
 - **使用方式**: 启动 `start_proxy.py`，客户端改 addr:port 指向代理即可
 - **设计文档**: [`docs/designs/proxy-concurrent-routing.md`](docs/designs/proxy-concurrent-routing.md)，[`docs/消费方并发改造指南.md`](docs/消费方并发改造指南.md)
