@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 import math
 from dataclasses import dataclass
+from typing import ClassVar
 from time import monotonic
 
 from core.logger import get_logger
@@ -17,6 +18,8 @@ logger = get_logger("proxy")
 @dataclass
 class BackendState:
     """Mutable health and load counters for one backend ASR server."""
+
+    _rr_counter: ClassVar[int] = 0
 
     id: str
     url: str
@@ -30,6 +33,16 @@ class BackendState:
     latency_samples: int = 0
     last_latency_time: float = 0.0
     max_connect_failures: int = 3
+
+    def __post_init__(self) -> None:
+        if self.weight <= 0:
+            raise ValueError(f"weight must be positive, got {self.weight}")
+
+    @classmethod
+    def next_rr(cls) -> int:
+        val = cls._rr_counter
+        cls._rr_counter += 1
+        return val
 
     def acquire_task(self) -> None:
         self.active_tasks += 1

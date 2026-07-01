@@ -166,3 +166,13 @@ def test_backend_truncation_resets_stale_ewma():
 
     assert backend.latency_samples == 0
     assert backend.avg_latency == 0.0
+
+
+def test_backend_rejects_zero_weight():
+    with pytest.raises(ValueError, match="weight"):
+        BackendState(id="backend-0", url="ws://localhost:6016", weight=0.0)
+
+
+def test_backend_rejects_negative_weight():
+    with pytest.raises(ValueError, match="weight"):
+        BackendState(id="backend-0", url="ws://localhost:6016", weight=-1.0)

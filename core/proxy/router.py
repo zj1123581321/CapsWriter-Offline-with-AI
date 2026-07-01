@@ -103,7 +103,10 @@ class TaskRouter:
             )
             return selected
 
-        selected = min(healthy_backends, key=self.backend_score)
+        best_score = min(self.backend_score(b) for b in healthy_backends)
+        tied = [b for b in healthy_backends if self.backend_score(b) == best_score]
+        rr = BackendState.next_rr()
+        selected = tied[rr % len(tied)]
         logger.info(
             "后端选择: backend=%s active_tasks=%s weight=%.3f avg_latency=%.3f latency_samples=%s score=%.6f",
             selected.id,
@@ -114,7 +117,7 @@ class TaskRouter:
             self.backend_score(selected),
         )
         logger.debug(
-            "后端延迟状态: %s",
+            "后端诊断延迟(仅日志): %s",
             ", ".join(
                 f"{backend.id}:avg_latency={backend.avg_latency:.3f},samples={backend.latency_samples}"
                 for backend in self.backends
@@ -123,30 +126,7 @@ class TaskRouter:
         return selected
 
     def backend_score(self, backend: BackendState) -> float:
-        latency = self._latency_for_score(backend)
-        return (backend.active_tasks + 1) / backend.weight + latency * 1e-6
-
-    def _latency_for_score(self, backend: BackendState) -> float:
-        if backend.latency_samples >= 3 and backend.avg_latency > 0:
-            if (
-                backend.last_latency_time > 0
-                and monotonic() - backend.last_latency_time > self.latency_ttl_seconds
-            ):
-                return self._peer_median_latency(backend)
-            return backend.avg_latency
-        return self._peer_median_latency(backend)
-
-    def _peer_median_latency(self, exclude: BackendState) -> float:
-        """Return median latency of warm peers, or 1.0 if no peers have data."""
-        warm = sorted(
-            b.avg_latency
-            for b in self.backends
-            if b is not exclude and b.latency_samples >= 3 and b.avg_latency > 0
-        )
-        if not warm:
-            return 1.0
-        mid = len(warm) // 2
-        return warm[mid] if len(warm) % 2 else (warm[mid - 1] + warm[mid]) / 2
+        return (backend.active_tasks + 1) / backend.weight
 
     def get_backend_for_task(self, task_id: str) -> Optional[BackendState]:
         session = self.task_sessions.get(task_id)
