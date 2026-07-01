@@ -14,6 +14,13 @@ from core.proxy.router import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_rr_counter():
+    BackendState._rr_counter = 0
+    yield
+    BackendState._rr_counter = 0
+
+
 def make_audio(task_id: str, is_final: bool = False) -> str:
     return json.dumps(
         {
@@ -83,19 +90,62 @@ def test_router_selects_lowest_weighted_load_backend():
     assert selected.id == "backend-1"
 
 
-def test_router_uses_latency_as_tiebreaker_when_same_load():
-    """When active_tasks are equal, latency breaks the tie."""
-    fast = BackendState(id="backend-fast", url="ws://a", weight=1.0)
-    slow = BackendState(id="backend-slow", url="ws://b", weight=1.0)
-    fast.active_tasks = slow.active_tasks = 1
-    fast.avg_latency = 1.0
-    slow.avg_latency = 4.0
-    fast.latency_samples = slow.latency_samples = 4
-    router = TaskRouter([slow, fast])
+def test_round_robin_tiebreaker_cycles_through_tied_backends():
+    """When all backends have the same score, round-robin cycles through them."""
+    backends = [
+        BackendState(id="a", url="ws://a"),
+        BackendState(id="b", url="ws://b"),
+        BackendState(id="c", url="ws://c"),
+    ]
+    router = TaskRouter(backends)
+
+    ids = [router.select_backend().id for _ in range(6)]
+
+    assert ids == ["a", "b", "c", "a", "b", "c"]
+
+
+def test_ten_sequential_tasks_distribute_evenly_across_three_backends():
+    """Acceptance: 3 idle backends, 10 sequential tasks, no starvation."""
+    backends = [
+        BackendState(id="mac-studio", url="ws://a"),
+        BackendState(id="mac-mini", url="ws://b"),
+        BackendState(id="amd-6800h", url="ws://c"),
+    ]
+    router = TaskRouter(backends)
+
+    counts = {"mac-studio": 0, "mac-mini": 0, "amd-6800h": 0}
+    for _ in range(10):
+        selected = router.select_backend()
+        counts[selected.id] += 1
+
+    assert all(count >= 3 for count in counts.values()), f"Uneven distribution: {counts}"
+
+
+def test_round_robin_counter_shared_across_taskrouter_instances():
+    """TaskRouter is per-client; rr counter must be shared via BackendState ClassVar."""
+    backends = [
+        BackendState(id="a", url="ws://a"),
+        BackendState(id="b", url="ws://b"),
+        BackendState(id="c", url="ws://c"),
+    ]
+    router1 = TaskRouter(backends)
+    router2 = TaskRouter(backends)
+
+    assert router1.select_backend().id == "a"
+    assert router2.select_backend().id == "b"
+    assert router1.select_backend().id == "c"
+
+
+def test_concurrent_tasks_unaffected_by_round_robin():
+    """When active_tasks differ, least-connections wins over round-robin."""
+    idle = BackendState(id="idle", url="ws://a")
+    busy = BackendState(id="busy", url="ws://b")
+    busy.active_tasks = 2
+    router = TaskRouter([busy, idle])
 
     selected = router.select_backend()
 
-    assert selected.id == "backend-fast"
+    assert selected.id == "idle"
 
 
 def test_load_dominates_latency_in_scoring():
@@ -121,11 +171,6 @@ def test_three_concurrent_tasks_spread_to_three_backends():
         BackendState(id="mac-mini", url="ws://b", weight=1.0),
         BackendState(id="amd-6800h", url="ws://c", weight=1.0),
     ]
-    backends[0].avg_latency = 12.0
-    backends[1].avg_latency = 281.0
-    backends[2].avg_latency = 191.0
-    for b in backends:
-        b.latency_samples = 10
     router = TaskRouter(backends)
 
     selected_ids = []
@@ -137,101 +182,28 @@ def test_three_concurrent_tasks_spread_to_three_backends():
     assert len(set(selected_ids)) == 3
 
 
-def test_backend_score_dominated_by_active_tasks():
-    backend = BackendState(id="backend-0", url="ws://a", weight=1.0)
-    backend.avg_latency = 3.0
-    backend.latency_samples = 4
+def test_backend_score_is_pure_least_connections():
+    """Score = (active_tasks + 1) / weight, no latency component."""
+    backend = BackendState(id="backend-0", url="ws://a", weight=2.0)
+    backend.active_tasks = 3
+    backend.avg_latency = 999.0
+    backend.latency_samples = 100
     router = TaskRouter([backend])
 
     score = router.backend_score(backend)
-    assert score >= 1.0
+
+    assert score == pytest.approx((3 + 1) / 2.0)
 
 
 def test_router_weight_affects_selection_at_equal_load():
     """With same active_tasks, lower weight backend gets deprioritized."""
     lan = BackendState(id="lan", url="ws://lan", weight=1.0)
     remote = BackendState(id="remote", url="ws://remote", weight=0.3)
-    lan.avg_latency = 1.0
-    remote.avg_latency = 6.0
-    lan.latency_samples = remote.latency_samples = 4
     router = TaskRouter([remote, lan])
 
     selected = router.select_backend()
 
     assert selected.id == "lan"
-
-
-def test_router_expires_stale_latency_to_allow_backend_recovery(monkeypatch):
-    """When latency is stale, backend falls back to peer median so it's not permanently penalized."""
-    now = {"value": 1000.0}
-    monkeypatch.setattr("core.proxy.router.monotonic", lambda: now["value"])
-    monkeypatch.setattr("core.proxy.backend.monotonic", lambda: 1001.0)
-    recovered = BackendState(id="recovered", url="ws://recovered", weight=1.0)
-    current = BackendState(id="current", url="ws://current", weight=1.0)
-    recovered.avg_latency = 300.0
-    current.avg_latency = 1.0
-    recovered.latency_samples = current.latency_samples = 4
-    recovered.last_latency_time = 600.0
-    current.last_latency_time = 990.0
-    current.active_tasks = 1
-    router = TaskRouter([recovered, current], latency_ttl_seconds=300)
-
-    selected = router.select_backend()
-
-    assert selected.id == "recovered"
-
-    recovered.record_processing_latency(1.0, latency_ttl_seconds=300)
-    now["value"] = 1002.0
-
-    assert router.select_backend().id == "recovered"
-
-
-def test_router_tiebreaker_during_warmup():
-    """During warmup (< 3 samples), cold backend uses peer median for tiebreaker."""
-    cold = BackendState(id="backend-cold", url="ws://a", weight=1.0)
-    warm = BackendState(id="backend-warm", url="ws://b", weight=1.0)
-    cold.active_tasks = warm.active_tasks = 1
-    cold.avg_latency = 0.5
-    warm.avg_latency = 4.0
-    cold.latency_samples = 2
-    warm.latency_samples = 4
-    router = TaskRouter([cold, warm])
-
-    selected = router.select_backend()
-
-    assert selected.id in ("backend-cold", "backend-warm")
-
-
-def test_cold_backend_uses_peer_median_latency_not_fixed_default():
-    """Cold backend (no samples) should use the median latency of warm peers,
-    not a fixed 1.0, so it doesn't steal all traffic from high-latency peers."""
-    warm_a = BackendState(id="warm-a", url="ws://a", weight=1.0)
-    warm_b = BackendState(id="warm-b", url="ws://b", weight=1.0)
-    cold = BackendState(id="cold", url="ws://c", weight=1.0)
-    warm_a.avg_latency = 20.0
-    warm_b.avg_latency = 30.0
-    warm_a.latency_samples = warm_b.latency_samples = 10
-    cold.latency_samples = 0
-    cold.avg_latency = 0.0
-    router = TaskRouter([warm_a, warm_b, cold])
-
-    score_cold = router.backend_score(cold)
-    score_warm_a = router.backend_score(warm_a)
-    assert score_cold >= score_warm_a * 0.5, (
-        f"Cold backend score {score_cold} should not be drastically lower "
-        f"than warm peer score {score_warm_a}"
-    )
-
-
-def test_cold_backend_fallback_when_all_cold():
-    """When all backends are cold, fallback to 1.0 (no peers to reference)."""
-    a = BackendState(id="a", url="ws://a", weight=1.0)
-    b = BackendState(id="b", url="ws://b", weight=1.0)
-    a.latency_samples = b.latency_samples = 0
-    router = TaskRouter([a, b])
-
-    assert router.backend_score(a) == pytest.approx(1.0)
-    assert router.backend_score(b) == pytest.approx(1.0)
 
 
 def test_router_tie_breaks_by_config_order():

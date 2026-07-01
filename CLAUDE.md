@@ -65,7 +65,7 @@
 ### 7. ASR 负载均衡代理 (Proxy)
 - **独立组件**: 不改 Server/Client 代码，代理层在 Server 前面做中转
 - **Per-task 路由**: 每个 task_id 独立建后端 WS 连接（Server 的 `AudioCache` 是 per-websocket 的，不能复用连接）
-- **Least-connections 路由策略**: 评分公式 `(active_tasks + 1) / weight + latency * 1e-6`，active_tasks 为主（确保任务均匀分散到所有后端），latency 仅作同等负载时的 tiebreaker。支持设备算力权重（`config_proxy.py` 中配置）和 processing_latency 动态反馈（EWMA alpha=0.2，冷启动前 3 次不参与，异常截断时自动重置避免僵尸惩罚）
+- **Least-connections 路由策略**: 评分公式 `(active_tasks + 1) / weight`，平局时 round-robin 轮转（`BackendState._rr_counter` ClassVar）。支持设备算力权重（`config_proxy.py` 中配置）。processing_latency EWMA（alpha=0.2，异常截断时自动重置）仅用于诊断日志和 `/status` 端点，不参与路由决策
 - **网络感知诊断**: 记录任务端到端延迟（连接建立→收到结果）和推理延迟双指标日志，用于诊断网络 vs 推理瓶颈；EWMA 样本过期（默认 300s）自动重置
 - **健康检查**: 不用 ping/pong（推理时会阻塞 event loop），用连接失败计数（连续 3 次标记 unhealthy）；unhealthy 后端 cooldown 60s 后自动恢复；全部 unhealthy 时降级路由到负载最低的后端
 - **WS 参数**: `max_size=None`, `ping_interval=None`（与 Server 一致）
