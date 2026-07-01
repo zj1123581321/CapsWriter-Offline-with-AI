@@ -105,8 +105,8 @@ class TaskRouter:
 
         best_score = min(self.backend_score(b) for b in healthy_backends)
         tied = [b for b in healthy_backends if self.backend_score(b) == best_score]
-        rr = BackendState.next_rr()
-        selected = tied[rr % len(tied)]
+        selected = min(tied, key=lambda b: b._last_selected)
+        selected.mark_selected()
         logger.info(
             "后端选择: backend=%s active_tasks=%s weight=%.3f avg_latency=%.3f latency_samples=%s score=%.6f",
             selected.id,

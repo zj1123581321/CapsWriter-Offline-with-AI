@@ -15,10 +15,10 @@ from core.proxy.router import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_rr_counter():
-    BackendState._rr_counter = 0
+def _reset_rr_clock():
+    BackendState._rr_clock = 0
     yield
-    BackendState._rr_counter = 0
+    BackendState._rr_clock = 0
 
 
 def make_audio(task_id: str, is_final: bool = False) -> str:
@@ -204,6 +204,73 @@ def test_router_weight_affects_selection_at_equal_load():
     selected = router.select_backend()
 
     assert selected.id == "lan"
+
+
+def test_unhealthy_backend_does_not_steal_round_robin_slots():
+    """When one backend is unhealthy, round-robin cycles only among healthy ones."""
+    backends = [
+        BackendState(id="a", url="ws://a"),
+        BackendState(id="b", url="ws://b"),
+        BackendState(id="c", url="ws://c"),
+    ]
+    backends[2].healthy = False
+    router = TaskRouter(backends)
+
+    ids = [router.select_backend().id for _ in range(6)]
+
+    assert ids == ["a", "b", "a", "b", "a", "b"]
+
+
+def test_round_robin_stable_when_backend_recovers_from_unhealthy():
+    """When an unhealthy backend recovers, it joins the rotation without
+    disrupting the fairness of existing healthy backends."""
+    backends = [
+        BackendState(id="a", url="ws://a"),
+        BackendState(id="b", url="ws://b"),
+        BackendState(id="c", url="ws://c"),
+    ]
+    backends[2].healthy = False
+    router = TaskRouter(backends)
+
+    ids_before = [router.select_backend().id for _ in range(4)]
+    assert ids_before == ["a", "b", "a", "b"]
+
+    backends[2].healthy = True
+    ids_after = [router.select_backend().id for _ in range(6)]
+
+    assert set(ids_after) == {"a", "b", "c"}
+    from collections import Counter
+    counts = Counter(ids_after)
+    assert counts["a"] == 2 and counts["b"] == 2 and counts["c"] == 2
+
+
+def test_failed_backend_cycling_does_not_starve_healthy_peers():
+    """Regression: backend-2 repeatedly fails (cooldown→recover→fail cycle).
+    Each cycle: c recovers → gets selected → fails → costs an rr slot.
+    Between cycles, a and b must still alternate fairly.
+
+    Simulates production scenario: tasks take >60s, cooldown is 60s,
+    so c always recovers before the next task arrives."""
+    backends = [
+        BackendState(id="a", url="ws://a"),
+        BackendState(id="b", url="ws://b"),
+        BackendState(id="c", url="ws://c"),
+    ]
+    router = TaskRouter(backends)
+
+    ids = []
+    for _ in range(15):
+        backends[2].healthy = True
+        selected = router.select_backend()
+        if selected.id == "c":
+            selected.healthy = False
+            selected = router.select_backend()
+        ids.append(selected.id)
+
+    from collections import Counter
+    counts = Counter(ids)
+    assert counts["a"] >= 5, f"a starved: {counts}"
+    assert counts["b"] >= 5, f"b starved: {counts}"
 
 
 def test_router_tie_breaks_by_config_order():

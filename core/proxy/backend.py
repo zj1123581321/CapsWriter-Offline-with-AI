@@ -19,7 +19,7 @@ logger = get_logger("proxy")
 class BackendState:
     """Mutable health and load counters for one backend ASR server."""
 
-    _rr_counter: ClassVar[int] = 0
+    _rr_clock: ClassVar[int] = 0
 
     id: str
     url: str
@@ -33,16 +33,15 @@ class BackendState:
     latency_samples: int = 0
     last_latency_time: float = 0.0
     max_connect_failures: int = 3
+    _last_selected: int = 0
 
     def __post_init__(self) -> None:
         if self.weight <= 0:
             raise ValueError(f"weight must be positive, got {self.weight}")
 
-    @classmethod
-    def next_rr(cls) -> int:
-        val = cls._rr_counter
-        cls._rr_counter += 1
-        return val
+    def mark_selected(self) -> None:
+        BackendState._rr_clock += 1
+        self._last_selected = BackendState._rr_clock
 
     def acquire_task(self) -> None:
         self.active_tasks += 1
