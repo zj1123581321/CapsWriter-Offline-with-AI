@@ -208,3 +208,35 @@ async def test_client_disconnect_records_failed_task_history():
     assert payload["task_history"]["failed"] >= 1
     assert payload["task_history"]["recent"][-1]["task_id"] == "task-disconnect"
     assert payload["task_history"]["recent"][-1]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_health_probe_recovers_backend_when_it_comes_back():
+    """Background health probe should mark an unhealthy backend as healthy
+    when it can connect again, without sacrificing a real task."""
+    probe_count = 0
+
+    async def backend_handler(ws):
+        nonlocal probe_count
+        probe_count += 1
+        await ws.close()
+
+    backends = [
+        BackendState(id="good", url="ws://127.0.0.1:1"),
+        BackendState(id="down", url="ws://127.0.0.1:2", healthy=False),
+    ]
+    backends[1].consecutive_failures = 3
+    proxy = ProxyServer("127.0.0.1", 0, backends, probe_interval=0.1)
+
+    assert backends[1].healthy is False
+
+    async with websockets.serve(backend_handler, "127.0.0.1", 0, max_size=None) as recovered_server:
+        port = recovered_server.sockets[0].getsockname()[1]
+        backends[1].url = f"ws://127.0.0.1:{port}"
+
+        async with proxy.serve():
+            await asyncio.sleep(0.3)
+
+    assert backends[1].healthy is True
+    assert backends[1].consecutive_failures == 0
+    assert probe_count >= 1

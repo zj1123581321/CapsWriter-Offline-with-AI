@@ -285,38 +285,16 @@ def test_router_tie_breaks_by_config_order():
     assert selected.id == "backend-0"
 
 
-def test_router_recovers_unhealthy_backend_after_cooldown(monkeypatch):
-    backend = BackendState(id="backend-0", url="ws://a", healthy=False)
-    backend.consecutive_failures = 3
-    backend.last_failure_time = 10.0
-    monkeypatch.setattr("core.proxy.router.time.time", lambda: 75.0)
-    router = TaskRouter([backend], cooldown_seconds=60)
-
-    selected = router.select_backend()
-
-    assert selected is backend
-    assert backend.healthy is True
-    assert backend.consecutive_failures == 0
-
-
-def test_router_degrades_to_least_loaded_backend_when_all_in_cooldown(monkeypatch):
-    warnings = []
-    monkeypatch.setattr(
-        "core.proxy.router.logger.warning",
-        lambda message, *args, **kwargs: warnings.append(message % args),
-    )
+def test_all_unhealthy_raises_no_healthy_backend_error():
+    """When all backends are unhealthy, select_backend raises instead of degrading."""
     backends = [
         BackendState(id="backend-0", url="ws://a", healthy=False),
         BackendState(id="backend-1", url="ws://b", healthy=False),
     ]
-    backends[0].active_tasks = 2
-    backends[1].active_tasks = 1
-    router = TaskRouter(backends, cooldown_seconds=60)
+    router = TaskRouter(backends)
 
-    selected = router.select_backend()
-
-    assert selected.id == "backend-1"
-    assert any("全部后端 unhealthy" in message for message in warnings)
+    with pytest.raises(NoHealthyBackendError):
+        router.select_backend()
 
 
 def test_router_rejects_when_no_backends_configured():
@@ -413,26 +391,89 @@ async def test_router_reserves_backend_load_before_connect_completes():
 
 
 @pytest.mark.asyncio
-async def test_in_cooldown_fallback_failure_does_not_extend_cooldown(monkeypatch):
-    monkeypatch.setattr("core.proxy.router.time.time", lambda: 120.0)
+async def test_connect_failure_retries_next_healthy_backend():
+    """When the selected backend fails to connect, retry on the next one."""
+    good = BackendState(id="good", url="ws://good")
+    bad = BackendState(id="bad", url="ws://bad")
+
+    class FakeBackendWS:
+        async def send(self, _): pass
+        async def close(self): pass
+        def __aiter__(self): return self
+        async def __anext__(self): await asyncio.sleep(60)
+
+    class FakeClientWS:
+        async def send(self, _): pass
+        async def close(self, *a, **kw): pass
+
+    connected_urls = []
+    async def selective_connect(url):
+        connected_urls.append(url)
+        if url == "ws://bad":
+            raise OSError("connection refused")
+        return FakeBackendWS()
+
+    router = TaskRouter([bad, good], connect_func=selective_connect)
+
+    await router.route_client_message(make_audio("task-a"), FakeClientWS())
+    await router.close_all()
+
+    assert "ws://bad" in connected_urls
+    assert "ws://good" in connected_urls
+    assert router.get_backend_for_task("task-a") is None  # closed
+    assert bad.healthy is False or bad.consecutive_failures > 0
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_all_backends_raises():
+    """When ALL backends fail to connect, raise NoHealthyBackendError."""
+    backends = [
+        BackendState(id="a", url="ws://a"),
+        BackendState(id="b", url="ws://b"),
+    ]
+
+    async def always_fail(_url):
+        raise OSError("connection refused")
+
+    router = TaskRouter(backends, connect_func=always_fail)
+
+    with pytest.raises(NoHealthyBackendError):
+        await router.route_client_message(make_audio("task-a"), object())
+
+
+@pytest.mark.asyncio
+async def test_no_cooldown_auto_recovery_in_select_backend(monkeypatch):
+    """Unhealthy backends must NOT auto-recover via cooldown timer in select_backend.
+    Recovery is handled by the background health probe instead."""
+    monkeypatch.setattr("core.proxy.router.time.time", lambda: 200.0)
+    backends = [
+        BackendState(id="healthy", url="ws://a"),
+        BackendState(id="down", url="ws://b", healthy=False),
+    ]
+    backends[1].consecutive_failures = 3
+    backends[1].last_failure_time = 100.0  # 100s ago, well past 60s cooldown
+
+    router = TaskRouter(backends)
+
+    for _ in range(5):
+        selected = router.select_backend()
+        assert selected.id == "healthy", "unhealthy backend must not auto-recover"
+
+
+@pytest.mark.asyncio
+async def test_all_backends_fail_connect_raises_no_healthy():
+    """When the only backend is unhealthy and connect fails, raise NoHealthyBackendError."""
     backend = BackendState(
         id="backend-0",
         url="ws://a",
         healthy=False,
         max_connect_failures=1,
-        last_failure_time=100.0,
     )
 
-    async def failing_connect(_url):
-        raise OSError("still down")
+    router = TaskRouter([backend])
 
-    router = TaskRouter([backend], connect_func=failing_connect, cooldown_seconds=60)
-
-    with pytest.raises(OSError):
+    with pytest.raises(NoHealthyBackendError):
         await router.route_client_message(make_audio("task-a"), object())
-
-    assert backend.healthy is False
-    assert backend.last_failure_time == 100.0
 
 
 @pytest.mark.asyncio

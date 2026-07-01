@@ -61,14 +61,12 @@ class TaskRouter:
         self,
         backends: Iterable[BackendState],
         connect_func: Optional[ConnectFunc] = None,
-        cooldown_seconds: int = 60,
         latency_ttl_seconds: int = 300,
         task_history: Optional[Deque[dict]] = None,
     ):
         self.backends = list(backends)
         self.task_sessions: Dict[str, TaskSession] = {}
         self._connect_func = connect_func
-        self.cooldown_seconds = cooldown_seconds
         self.latency_ttl_seconds = latency_ttl_seconds
         self.task_history = task_history
 
@@ -76,32 +74,9 @@ class TaskRouter:
         if not self.backends:
             raise NoHealthyBackendError("No ASR backend is configured")
 
-        now = time.time()
-        for backend in self.backends:
-            if (
-                not backend.healthy
-                and backend.last_failure_time > 0
-                and now - backend.last_failure_time >= self.cooldown_seconds
-            ):
-                backend.consecutive_failures = 0
-                backend.healthy = True
-                logger.info(
-                    "后端 cooldown 已结束，恢复健康: backend=%s url=%s cooldown_seconds=%s",
-                    backend.id,
-                    backend.url,
-                    self.cooldown_seconds,
-                )
-
         healthy_backends = [backend for backend in self.backends if backend.healthy]
         if not healthy_backends:
-            selected = min(self.backends, key=lambda backend: backend.active_tasks)
-            logger.warning(
-                "全部后端 unhealthy，降级路由到 cooldown 中负载最低后端: backend=%s active_tasks=%s score=%.6f",
-                selected.id,
-                selected.active_tasks,
-                self.backend_score(selected),
-            )
-            return selected
+            raise NoHealthyBackendError("所有后端均不健康，等待探活恢复")
 
         best_score = min(self.backend_score(b) for b in healthy_backends)
         tied = [b for b in healthy_backends if self.backend_score(b) == best_score]
@@ -188,42 +163,41 @@ class TaskRouter:
 
     async def _open_task_session(self, task_id: str, client_ws) -> TaskSession:
         start_time = monotonic()
-        backend = self.select_backend()
-        in_cooldown_fallback = (
-            not backend.healthy
-            and backend.last_failure_time > 0
-            and time.time() - backend.last_failure_time < self.cooldown_seconds
-        )
-        backend.acquire_task()
-        try:
-            backend_ws = await self._connect_backend(backend.url)
-        except asyncio.CancelledError:
-            backend.release_task()
-            self._record_task_history(
-                task_id=task_id,
-                backend_id=backend.id,
-                status="cancelled",
-                duration=monotonic() - start_time,
-            )
-            raise
-        except Exception:
-            backend.release_task()
-            backend.record_connect_failure(refresh_cooldown=not in_cooldown_fallback)
-            self._record_task_history(
-                task_id=task_id,
-                backend_id=backend.id,
-                status="failed",
-                duration=monotonic() - start_time,
-            )
-            logger.warning(
-                "后端连接失败: backend=%s url=%s failures=%s healthy=%s",
-                backend.id,
-                backend.url,
-                backend.consecutive_failures,
-                backend.healthy,
-                exc_info=True,
-            )
-            raise
+        tried = set()
+        last_error = None
+        while True:
+            backend = self.select_backend()
+            if backend.id in tried:
+                raise NoHealthyBackendError(
+                    f"所有后端连接失败: task_id={task_id} tried={tried}"
+                )
+            tried.add(backend.id)
+            backend.acquire_task()
+            try:
+                backend_ws = await self._connect_backend(backend.url)
+            except asyncio.CancelledError:
+                backend.release_task()
+                self._record_task_history(
+                    task_id=task_id,
+                    backend_id=backend.id,
+                    status="cancelled",
+                    duration=monotonic() - start_time,
+                )
+                raise
+            except Exception as exc:
+                backend.release_task()
+                backend.record_connect_failure()
+                logger.warning(
+                    "后端连接失败，尝试下一个: backend=%s url=%s failures=%s healthy=%s",
+                    backend.id,
+                    backend.url,
+                    backend.consecutive_failures,
+                    backend.healthy,
+                    exc_info=True,
+                )
+                last_error = exc
+                continue
+            break
 
         backend.record_connect_success()
         outbound_queue = asyncio.Queue()

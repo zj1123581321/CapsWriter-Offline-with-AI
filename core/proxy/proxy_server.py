@@ -19,6 +19,25 @@ from .backend import BackendState
 from .router import NoHealthyBackendError, TaskRouter
 
 
+class _ProbeContextManager:
+    def __init__(self, ws_server_cm, proxy):
+        self._ws_cm = ws_server_cm
+        self._proxy = proxy
+        self._probe_task = None
+
+    async def __aenter__(self):
+        server = await self._ws_cm.__aenter__()
+        self._probe_task = asyncio.create_task(self._proxy._health_probe_loop())
+        return server
+
+    async def __aexit__(self, *exc):
+        if self._probe_task:
+            self._probe_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._probe_task
+        return await self._ws_cm.__aexit__(*exc)
+
+
 class ProxyServer:
     """Accepts client WebSockets and proxies task streams to ASR backends."""
 
@@ -29,19 +48,24 @@ class ProxyServer:
         backends: Iterable[BackendState],
         cooldown_seconds: int = 60,
         log_level: str = "DEBUG",
+        probe_interval: float = 60.0,
+        max_probe_interval: float = 300.0,
     ):
         self.listen_addr = listen_addr
         self.listen_port = listen_port
         self.backends = list(backends)
         self.cooldown_seconds = cooldown_seconds
+        self.probe_interval = probe_interval
+        self.max_probe_interval = max_probe_interval
         self.logger = setup_logger("proxy", level=log_level, log_filename="proxy")
         self._server = None
+        self._probe_task = None
         self.task_history = deque(maxlen=1000)
 
     def serve(self):
         import websockets
 
-        return websockets.serve(
+        ws_server = websockets.serve(
             self.handle_client,
             self.listen_addr,
             self.listen_port,
@@ -49,6 +73,7 @@ class ProxyServer:
             ping_interval=None,
             process_request=self.process_request,
         )
+        return _ProbeContextManager(ws_server, self)
 
     def process_request(self, connection, request):
         from websockets.datastructures import Headers
@@ -174,12 +199,50 @@ class ProxyServer:
             self._server = server
             await asyncio.Future()
 
+    async def _health_probe_loop(self) -> None:
+        import websockets
+
+        backoff: dict[str, float] = {}
+        while True:
+            unhealthy = [b for b in self.backends if not b.healthy]
+            if not unhealthy:
+                await asyncio.sleep(self.probe_interval)
+                continue
+            for backend in unhealthy:
+                interval = backoff.get(backend.id, self.probe_interval)
+                try:
+                    ws = await asyncio.wait_for(
+                        websockets.connect(
+                            backend.url, max_size=None, ping_interval=None,
+                        ),
+                        timeout=5.0,
+                    )
+                    await ws.close()
+                    backend.consecutive_failures = 0
+                    backend.healthy = True
+                    backoff.pop(backend.id, None)
+                    self.logger.info(
+                        "探活成功，后端恢复健康: backend=%s url=%s",
+                        backend.id,
+                        backend.url,
+                    )
+                except Exception:
+                    new_interval = min(interval * 2, self.max_probe_interval)
+                    backoff[backend.id] = new_interval
+                    self.logger.debug(
+                        "探活失败: backend=%s url=%s next_probe=%.0fs",
+                        backend.id,
+                        backend.url,
+                        new_interval,
+                    )
+            next_sleep = min(backoff.get(b.id, self.probe_interval) for b in unhealthy if not b.healthy) if any(not b.healthy for b in unhealthy) else self.probe_interval
+            await asyncio.sleep(next_sleep)
+
     async def handle_client(self, client_ws) -> None:
         remote = getattr(client_ws, "remote_address", None)
         self.logger.info("代理客户端已连接: %s", remote)
         router = TaskRouter(
             self.backends,
-            cooldown_seconds=self.cooldown_seconds,
             task_history=self.task_history,
         )
 
