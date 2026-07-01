@@ -31,8 +31,9 @@
 - **Depends on:** v3 部署后观察实际路由行为。
 
 ### [x] 设备算力权重路由 ✅ 2026-06-30
-- **已完成:** 权重路由+RTF 动态评分+unhealthy cooldown 恢复+v3 网络感知诊断。commit c3d8386, 700e9b5, 4be000f。
-- 评分公式: `(active_tasks + 1) * latency / weight`（EWMA alpha=0.2，冷启动前 3 次不参与；过期样本按冷启动默认值处理）
+- **已完成:** 权重路由+unhealthy cooldown 恢复+v3 网络感知诊断。commit c3d8386, 700e9b5, 4be000f。
+- 评分公式: `(active_tasks + 1) / weight`，平局时 round-robin 轮转（`BackendState._rr_counter` ClassVar）
+- latency 已从评分公式中移除（avg_latency 是绝对处理耗时，不是设备速度指标，用它做 tiebreaker 会饿死处理长音频的快设备）。EWMA 仍保留用于诊断日志和 /status 端点
 - config_proxy.py 支持 `(url, weight)` tuple 和环境变量 `url|weight` 格式
 - unhealthy 后端 cooldown 60s 后自动恢复；全部 unhealthy 时降级路由
 
