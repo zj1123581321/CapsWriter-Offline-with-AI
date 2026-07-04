@@ -210,7 +210,9 @@ class QwenASRMLXArgs:
     字段名必须与 MLXEngineConfig 的 dataclass 字段严格对应。
     """
     # 模型来源：HF repo id（首次运行联网下载）或本地模型目录绝对路径
-    model = _env_str('CW_MLX_MODEL', 'Qwen/Qwen3-ASR-0.6B')
+    # 默认 1.7B 与 GGUF 部署对齐（嘈杂/多人声素材文本质量明显优于 0.6B）；
+    # 内存紧张的机器可用 CW_MLX_MODEL=Qwen/Qwen3-ASR-0.6B 降回
+    model = _env_str('CW_MLX_MODEL', 'Qwen/Qwen3-ASR-1.7B')
     dtype = _env_str('CW_MLX_DTYPE', '') or None   # 'float16' / 'bfloat16' / 空=库默认
     chunk_size = 80.0                              # 单段最大音频时长（秒），超出截断
     verbose = False
