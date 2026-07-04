@@ -60,6 +60,15 @@ class ServerConfig:
     log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
     aligner_idle_timeout = 10  # 对齐引擎空闲多少秒后自动释放显存 (0 表示不释放)
 
+    # 分段切点吸附（避免固定时长盲切剁在连续语音中间，导致对齐器时间戳畸变）
+    # 详见 core/server/connection/segmenter.py 模块说明
+    seg_cut_snap = True         # 总开关；关闭则回到固定时长盲切
+    seg_search_before = 5.0     # 名义切点向前搜索窗口（秒）
+    seg_search_after = 5.0      # 名义切点向后搜索窗口（秒）
+    seg_max_cut = 72.0          # file 任务弹性延长上限（秒）；段长=切点+overlap，须 ≤ 引擎 chunk_size(80)
+    seg_vad_threshold = 0.15    # VAD 人声概率低于该值视为静音帧（嘈杂多人声下 0.2~0.4 仍可能是弱语音，须收紧）
+    seg_min_quiet = 0.4         # 可信断点要求的静音持续时长下限（秒），与 ffmpeg silencedetect 惯例一致
+
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
     gpu_boost_enabled = False                   # 总开关，默认关闭
     gpu_boost_cmd = 'nvidia-smi -lmc 9000'      # GPU 预加速命令，锁定显存频率到9000MHz（根据实际 GPU 调整）
@@ -113,6 +122,9 @@ class ModelPaths:
     qwen3_asr_gguf_encoder_frontend = qwen3_asr_gguf_dir / 'qwen3_asr_encoder_frontend.onnx'
     qwen3_asr_gguf_encoder_backend = qwen3_asr_gguf_dir / 'qwen3_asr_encoder_backend.onnx'
     qwen3_asr_gguf_llm_decode = qwen3_asr_gguf_dir / 'qwen3_asr_llm.gguf'
+
+    # silero-VAD 模型路径（分段切点吸附用，~2.3MB，缺失时自动降级 RMS 能量检测）
+    silero_vad_model = model_dir / 'silero-vad' / 'silero_vad.onnx'
 
     # Force-Aligner 模型路径
     force_aligner_gguf_dir = model_dir / 'Qwen3-ForcedAligner' / 'Qwen3-ForcedAligner-0.6B'

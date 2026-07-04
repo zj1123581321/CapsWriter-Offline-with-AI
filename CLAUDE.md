@@ -14,7 +14,7 @@
 
 ### 1. 识别全链路 (Recognition Flow)
 - **采集**: Client 监听快捷键（默认 CapsLock 和 X2）。按下就开始收集录音chunk，超过 **0.3s (Threshold)** 不松则触发识别，**实时流式**通过 WebSocket 发送。
-- **切片 (Slicing)**: Client 配置 `mic_seg_duration` (60s) 和 `mic_seg_overlap` (4s)。Server 仅基于时间切片，**禁用 VAD** 以保留完整上下文。
+- **切片 (Slicing)**: Client 配置 `mic_seg_duration` (60s) 和 `mic_seg_overlap` (4s)。Server 按时间切片但**切点吸附静音**（[`core/server/connection/segmenter.py`](core/server/connection/segmenter.py)）：名义切点 ±5s 窗口内用 silero-VAD（缺模型时降级 RMS 能量）找人声概率最低的断点下刀，避免硬切在连续语音中间导致对齐器时间戳畸变。file 任务无可信断点时弹性延长至 `seg_max_cut`（72s，须 ≤ 引擎 chunk_size 80s）；mic 任务就地取最优点、不额外等待。不做语义级 VAD 切分以保留完整上下文。
 - **Server 处理**:
     - **双重结果**: 同时计算 `text` (简单文本拼接, Robust) 和 `text_accu` (基于 Token 时间戳去重, Precision)。
     - **拼接算法**: `text_accu`使用 **Token 时间戳去重** ([`core/server/merger/`](core/server/merger/))，`text` 使用 **模糊文本匹配**。

@@ -5,6 +5,7 @@ WebSocket 接收处理模块
 处理客户端发送的音频数据，进行分段和缓冲，提交到识别队列。
 """
 
+import asyncio
 import json
 import time
 from base64 import b64decode
@@ -17,6 +18,7 @@ from config_server import ServerConfig as Config
 from core.protocol import AudioMessage
 from core.constants import AudioFormat
 from core.tools.my_status import Status
+from .segmenter import get_cut_finder
 from .. import logger
 
 
@@ -34,6 +36,7 @@ class AudioCache:
         self.chunks: bytes = b''    # 音频数据缓冲
         self.offset: float = 0.0    # 当前偏移时间（秒）
         self.byte_count: int = 0    # 累计接收字节数
+        self.search_to: float = 0.0 # 切点吸附已搜索到的位置（秒），避免重复扫描
 
     @property
     def duration(self) -> float:
@@ -50,6 +53,89 @@ class AudioCache:
         self.chunks = b''
         self.offset = 0.0
         self.byte_count = 0
+        self.search_to = 0.0
+
+
+async def _submit_segments(msg: AudioMessage, cache: AudioCache, queue_in, socket_id: str) -> None:
+    """缓冲达到阈值后切分并提交识别任务。
+
+    seg_cut_snap 开启时，在名义切点附近吸附"最不像人声"的断点下刀
+    （silero-VAD 优先，RMS 能量兜底），避免硬切在连续语音中间导致
+    对齐器时间戳畸变：
+    - file 任务：窗口内无可信断点时暂不下刀，等更多音频到达后延长
+      搜索（上限 seg_max_cut，保证段长不超过引擎 chunk_size）；
+    - mic 任务：音频按 1 倍速实时到达，只在已有缓冲内就地取最优点，
+      绝不额外等待，不增加实时反馈延迟。
+    """
+    nominal, overlap = msg.seg_duration, msg.seg_overlap
+
+    if not Config.seg_cut_snap:
+        # 固定时长盲切（原始行为）
+        while cache.duration >= nominal + overlap * 2:
+            _cut_and_submit(msg, cache, queue_in, socket_id, cut=nominal)
+        return
+
+    w_before, w_after = Config.seg_search_before, Config.seg_search_after
+    max_cut = max(Config.seg_max_cut, nominal + w_after)
+    lo = max(nominal - w_before, min(nominal, 1.0))
+    finder = get_cut_finder()
+    loop = asyncio.get_running_loop()
+
+    while cache.duration >= nominal + w_after + overlap:
+        if msg.source == 'file':
+            hi = min(cache.duration - overlap, max_cut)
+            # 弹性等待期间没有新增可搜索区域时，等下一条消息再扫
+            if hi < max_cut and hi <= cache.search_to:
+                return
+        else:
+            hi = nominal + w_after
+
+        cut, confident = await loop.run_in_executor(
+            None, finder.find, cache.chunks, lo, hi, nominal
+        )
+
+        if not confident and msg.source == 'file' and hi < max_cut:
+            cache.search_to = hi
+            logger.debug(f"切点吸附: [{lo:.1f}, {hi:.1f}]s 无可信断点，等待更多音频延长搜索")
+            return
+        if confident:
+            logger.debug(f"切点吸附: 名义 {nominal}s，在 {cut:.2f}s 找到静音断点")
+        else:
+            logger.info(f"切点吸附: [{lo:.1f}, {hi:.1f}]s 内无可信静音断点，取最低分点 {cut:.2f}s 下刀")
+
+        cache.search_to = 0.0
+        _cut_and_submit(msg, cache, queue_in, socket_id, cut=cut)
+
+
+def _cut_and_submit(msg: AudioMessage, cache: AudioCache, queue_in, socket_id: str, cut: float) -> None:
+    """从缓冲区头部切出 [0, cut+overlap] 提交识别，缓冲区前移 cut 秒。"""
+    n_stride = int(round(cut * AudioFormat.SAMPLE_RATE))
+    n_segment = n_stride + int(round(msg.seg_overlap * AudioFormat.SAMPLE_RATE))
+    stride_bytes = n_stride * AudioFormat.BYTES_PER_SAMPLE
+    segment_bytes = n_segment * AudioFormat.BYTES_PER_SAMPLE
+
+    segment_data = cache.chunks[:segment_bytes]
+    cache.chunks = cache.chunks[stride_bytes:]
+
+    task = Task(
+        type=msg.source,
+        data=segment_data,
+        offset=cache.offset,
+        task_id=msg.task_id,
+        socket_id=socket_id,
+        overlap=msg.seg_overlap,
+        is_final=False,
+        time_start=msg.time_start,
+        time_submit=time.time(),
+        context=msg.context,
+        language=msg.language,
+    )
+    cache.offset += stride_bytes / AudioFormat.BYTES_PER_SECOND
+    queue_in.put(task)
+    logger.debug(
+        f"提交音频片段，任务ID: {msg.task_id}, 切点: {cut:.2f}s, "
+        f"偏移: {cache.offset}s, 缓冲区: {len(cache.chunks)} bytes"
+    )
 
 
 async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) -> None:
@@ -75,9 +161,6 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
             command='gpu_boost'
         ))
 
-    # 从消息中获取分段参数
-    seg_threshold = msg.seg_duration + msg.seg_overlap * 2
-
     try:
         # base64 解码音频数据（float32, 16kHz, mono）
         data = b64decode(msg.data)
@@ -93,32 +176,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 logger.info(f"开始接收音频文件，任务ID: {msg.task_id}")
 
             # 若缓冲已达到分段阈值，将片段作为任务提交
-            segment_bytes = AudioFormat.seconds_to_bytes(msg.seg_duration + msg.seg_overlap)
-            stride_bytes = AudioFormat.seconds_to_bytes(msg.seg_duration)
-
-            while cache.duration >= seg_threshold:
-                segment_data = cache.chunks[:segment_bytes]
-                cache.chunks = cache.chunks[stride_bytes:]
-
-                task = Task(
-                    type=msg.source,
-                    data=segment_data,
-                    offset=cache.offset,
-                    task_id=msg.task_id,
-                    socket_id=socket_id,
-                    overlap=msg.seg_overlap,
-                    is_final=False,
-                    time_start=msg.time_start,
-                    time_submit=time.time(),
-                    context=msg.context,
-                    language=msg.language,
-                )
-                cache.offset += msg.seg_duration
-                queue_in.put(task)
-                logger.debug(
-                    f"提交音频片段，任务ID: {msg.task_id}, "
-                    f"偏移: {cache.offset}s, 缓冲区: {len(cache.chunks)} bytes"
-                )
+            await _submit_segments(msg, cache, queue_in, socket_id)
 
         else:  # is_final
             # 打印状态消息
