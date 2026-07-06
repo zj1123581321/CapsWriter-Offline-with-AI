@@ -40,4 +40,4 @@ def test_create_engine_via_factory(fake_mlx):
     engine = EngineFactory.create_asr_engine("qwen_asr_mlx")
     assert engine.__class__.__name__ == "QwenASRMLXEngine"
     # config 由 QwenASRMLXArgs 展开而来，model 应为默认 repo id
-    assert engine.config.model == "Qwen/Qwen3-ASR-0.6B"
+    assert engine.config.model == "Qwen/Qwen3-ASR-1.7B"

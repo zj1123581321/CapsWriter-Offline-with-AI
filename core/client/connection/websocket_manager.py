@@ -91,6 +91,7 @@ class WebSocketManager:
                 subprotocols=["binary"],
                 max_size=None,
                 max_queue=None,  # 防止文件过大时，只发送，来不及消费结果，接收队列填满导致 pause_reading
+                ping_interval=None,  # 禁用 keepalive：文件转录连续发送大帧时 ping/pong 会被阻塞，默认 20s 超时会误杀连接（与 proxy 一致）
             )
 
             # websockets>=16.0 默认走代理，本地连接需显式禁用，但 14 才引入这个参数

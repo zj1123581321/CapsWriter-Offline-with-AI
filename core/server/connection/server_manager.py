@@ -66,7 +66,11 @@ class SocketManager:
             handler,
             Config.addr,
             Config.port,
-            max_size=None
+            max_size=None,
+            # 禁用 keepalive ping：超长音频上传/识别期间，客户端忙于连续发送大帧，
+            # pong 无法在默认 20s 内送达，服务端会误判超时并以 1011 断连
+            # （与 core/proxy/proxy_server.py 的 serve 保持一致）
+            ping_interval=None,
         ) as server:
             self._server = server  # 保存 server 引用，用于外部关闭
 
