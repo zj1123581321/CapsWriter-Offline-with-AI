@@ -1,4 +1,5 @@
 # CapsWriter-Offline 开发指南
+risk-tier: internal
 
 ## 核心设计 (Core Design)
 **"快、准、稳、离线"**
