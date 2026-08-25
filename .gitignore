@@ -195,3 +195,4 @@ core/server/engines/llama/bin/*.so*
 core/server/engines/llama/bin/*.dylib
 .venv-test/
 .venv-mlx/
+temp/
