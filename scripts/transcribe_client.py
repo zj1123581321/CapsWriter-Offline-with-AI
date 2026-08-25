@@ -168,10 +168,11 @@ def load_audio(path: Path) -> tuple[np.ndarray, int]:
 # ---------------------------------------------------------------------------
 
 def _fmt_timestamp(t: float) -> str:
-    h = int(t // 3600)
-    m = int(t % 3600 // 60)
-    s = int(t % 60)
-    ms = int(round((t - int(t)) * 1000))
+    total_ms = int(round(t * 1000))
+    ms = total_ms % 1000
+    total_s = total_ms // 1000
+    total_m, s = divmod(total_s, 60)
+    h, m = divmod(total_m, 60)
     return f'{h:02d}:{m:02d}:{s:02d},{ms:03d}'
 
 
@@ -256,8 +257,11 @@ async def transcribe_file(
     seg_overlap: float = 4.0,
     language: str = 'auto',
     timeout: float = 900.0,
+    audio: np.ndarray | None = None,
+    sr: int | None = None,
 ) -> RecognitionMessage | None:
-    audio, sr = load_audio(audio_path)
+    if audio is None or sr is None:
+        audio, sr = load_audio(audio_path)
     raw = audio.astype('<f4').tobytes()
     dur = len(audio) / sr
     task_id = str(uuid.uuid1())
@@ -279,7 +283,11 @@ async def transcribe_file(
                 if time.monotonic() > deadline:
                     print(f'✗ 超时 ({timeout}s): {audio_path.name}')
                     return None
-                rm = RecognitionMessage.from_dict(json.loads(resp))
+                try:
+                    rm = RecognitionMessage.from_dict(json.loads(resp))
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    print(f'✗ 解析服务端消息失败 {audio_path.name}: {e}')
+                    return None
                 print(f'  [{audio_path.name}] 进度 {rm.duration:.1f}s / {dur:.1f}s', end='\r')
                 if rm.is_final:
                     print()
@@ -308,7 +316,7 @@ async def _run_batch(
     for i, path in enumerate(paths, 1):
         print(f'\n[{i}/{len(paths)}] 转录: {path}')
         try:
-            load_audio(path)
+            audio, sr = load_audio(path)
         except RuntimeError as e:
             reason = str(e)
             print(f'✗ 装载失败: {reason}')
@@ -326,6 +334,8 @@ async def _run_batch(
             seg_overlap=seg_overlap,
             language=language,
             timeout=timeout,
+            audio=audio,
+            sr=sr,
         )
         if msg is None:
             failed.append((path, '转录失败或无最终结果'))
