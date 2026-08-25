@@ -1,4 +1,5 @@
 # CapsWriter-Offline 开发指南
+risk-tier: internal
 
 ## 核心设计 (Core Design)
 **"快、准、稳、离线"**
@@ -139,6 +140,7 @@
   - [`scripts/_verify_dictation.py`](scripts/_verify_dictation.py)：发 `source=mic`(听写路径,纯 ASR)验识别连通+文本+RTF。`--wav` 真实音频或 `--duration` 合成;`--source file` 可切文件路径。`python scripts/_verify_dictation.py --wav <wav> [--server ws://localhost:6017]`,依赖 `numpy websockets`(wav 走标准库 wave)。
   - [`scripts/_verify_file_transcribe.py`](scripts/_verify_file_transcribe.py)：发 `source=file`(文件转录)校验产出真·字级时间戳(单调递增、字间隔非均匀=真实对齐 aligner/原生,非字符均分回退)并落 srt。`python scripts/_verify_file_transcribe.py <wav> [--server ws://localhost:6017]`,依赖 `soundfile numpy websockets`。
   - 注：二者从各生产仓 untracked 的 `tools/test_ws_client.py`(文件名被 `.gitignore` 的 `test_*.py` 规则挡住,无法入库)收编泛化而来,现入主线 `scripts/`(`_` 前缀避开该规则)。
+- **独立转录客户端**: [`scripts/transcribe_client.py`](scripts/transcribe_client.py) — 单文件零仓内依赖 CLI，拷到任意设备连局域网/Tailscale ASR 服务端转录本地音频并落 srt/txt/json；依赖 `soundfile numpy websockets`，非 16k mono wav 需系统 `ffmpeg`。
 
 ## 模型支持 (Models)
 
