@@ -134,7 +134,7 @@ def test_write_srt_format(tc):
         assert "-->" in lines[1]
         assert lines[1].count(",") == 2  # HH:MM:SS,mmm
         assert "你好" in lines[2]
-        assert lines[3] == "2" or len(lines) >= 4
+        assert [ln for ln in lines if ln][3] == "2"
     finally:
         out.unlink(missing_ok=True)
         out.parent.rmdir()
@@ -142,6 +142,9 @@ def test_write_srt_format(tc):
 
 def test_fmt_timestamp(tc):
     assert tc._fmt_timestamp(3661.5) == "01:01:01,500"
+    assert tc._fmt_timestamp(1.9999) == "00:00:02,000"
+    assert tc._fmt_timestamp(59.9995) == "00:01:00,000"
+    assert tc._fmt_timestamp(0.1234) == "00:00:00,123"
 
 
 # --- 约束 3：退出码 ---
@@ -198,6 +201,39 @@ def test_load_mp3_uses_ffmpeg(tc, tmp_path, monkeypatch):
     audio, sr = tc.load_audio(mp3)
     assert sr == 16000
     assert len(audio) == 8000
+
+
+def test_run_batch_loads_audio_once(tc, tmp_path, monkeypatch):
+    mp3 = tmp_path / "a.mp3"
+    mp3.write_bytes(b"fake")
+    calls: list[Path] = []
+
+    def fake_ffmpeg(path):
+        calls.append(path)
+        return np.zeros(1600, dtype=np.float32), 16000
+
+    monkeypatch.setattr(tc, "_ffmpeg_to_float32", fake_ffmpeg)
+
+    async def fake_transcribe(path, **kwargs):
+        assert kwargs.get("audio") is not None
+        assert kwargs.get("sr") == 16000
+        return None
+
+    monkeypatch.setattr(tc, "transcribe_file", fake_transcribe)
+
+    asyncio.run(
+        tc._run_batch(
+            [mp3],
+            server="ws://127.0.0.1:1",
+            seg_duration=60,
+            seg_overlap=4,
+            language="auto",
+            out_dir=None,
+            fmt="srt",
+            timeout=1,
+        )
+    )
+    assert len(calls) == 1
 
 
 # --- 假 server 端到端 ---
@@ -284,19 +320,6 @@ async def test_transcribe_e2e_fake_server(tc, tmp_path, canned_message):
         await server.wait_closed()
 
 
-def _run_fake_server(canned: dict, ready: threading.Event, port_box: dict) -> None:
-    async def serve():
-        async def handler(ws):
-            await _fake_server(ws, canned)
-
-        async with websockets.serve(handler, "127.0.0.1", 0, subprotocols=["binary"]) as server:
-            port_box["port"] = server.sockets[0].getsockname()[1]
-            ready.set()
-            await asyncio.Future()
-
-    asyncio.run(serve())
-
-
 def test_main_success_fake_server(tc, tmp_path, canned_message):
     wav = tmp_path / "clip.wav"
     sf.write(str(wav), np.zeros(16000, dtype=np.float32), 16000)
@@ -329,6 +352,80 @@ def test_main_success_fake_server(tc, tmp_path, canned_message):
     assert (out_dir / "clip.srt").exists()
     assert (out_dir / "clip.txt").exists()
     assert (out_dir / "clip.json").exists()
+
+
+def _run_fake_server(canned: dict, ready: threading.Event, port_box: dict) -> None:
+    async def serve():
+        async def handler(ws):
+            await _fake_server(ws, canned)
+
+        async with websockets.serve(handler, "127.0.0.1", 0, subprotocols=["binary"]) as server:
+            port_box["port"] = server.sockets[0].getsockname()[1]
+            ready.set()
+            await asyncio.Future()
+
+    asyncio.run(serve())
+
+
+def _run_mixed_fake_server(
+    canned: dict,
+    ready: threading.Event,
+    port_box: dict,
+    state: dict,
+) -> None:
+    async def serve():
+        async def handler(ws):
+            state["calls"] = state.get("calls", 0) + 1
+            if state["calls"] == 1:
+                async for _raw in ws:
+                    await ws.send("{invalid json")
+                    return
+            await _fake_server(ws, canned)
+
+        async with websockets.serve(handler, "127.0.0.1", 0, subprotocols=["binary"]) as server:
+            port_box["port"] = server.sockets[0].getsockname()[1]
+            ready.set()
+            await asyncio.Future()
+
+    asyncio.run(serve())
+
+
+def test_batch_bad_json_does_not_abort(tc, tmp_path, canned_message):
+    bad = tmp_path / "bad.wav"
+    good = tmp_path / "good.wav"
+    sf.write(str(bad), np.zeros(16000, dtype=np.float32), 16000)
+    sf.write(str(good), np.zeros(16000, dtype=np.float32), 16000)
+    out_dir = tmp_path / "results"
+    out_dir.mkdir()
+
+    ready = threading.Event()
+    port_box: dict = {}
+    state: dict = {}
+    thread = threading.Thread(
+        target=_run_mixed_fake_server,
+        args=(canned_message, ready, port_box, state),
+        daemon=True,
+    )
+    thread.start()
+    assert ready.wait(timeout=5)
+
+    code = tc.main(
+        [
+            str(bad),
+            str(good),
+            "--server",
+            f"ws://127.0.0.1:{port_box['port']}",
+            "--out-dir",
+            str(out_dir),
+            "--format",
+            "srt",
+            "--timeout",
+            "10",
+        ]
+    )
+    assert code == 1
+    assert not (out_dir / "bad.srt").exists()
+    assert (out_dir / "good.srt").exists()
 
 
 def test_collect_paths(tc, tmp_path):
