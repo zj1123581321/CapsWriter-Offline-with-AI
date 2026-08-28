@@ -44,6 +44,12 @@
 - **复杂度注意(Codex review 2026-06-30):** 重发比预期复杂——需给后端发新 task_id(避免 Server 端 AudioCache 冲突),收到结果后将 task_id 重写回原始值再转发客户端;部分结果已发送时需处理去重;缓存内存需设上限(建议 100MB/task)并定义降级行为。建议在权重路由和 RTF 路由落地后再实现。
 - **Depends on:** 权重路由 + RTF 路由先落地。
 
+### [ ] 空闲 healthy 后端的主动探活
+- **What:** 对仍显示 `healthy=True`、但一段时间没有接到任务的后端，也做轻量 connect+close 探活，而不是只探已经 unhealthy 的后端。
+- **Why:** 空闲时段若某台后端悄悄挂了，要等到下一次任务路由到它才会变红，`/status` 会先显示一段时间假绿。
+- **现状/起点:** `d088b8f` 已实现 unhealthy 后台探活（轻量 WS connect+close，指数退避 60s→120s→300s 封顶），路由失败连续 3 次才标 unhealthy。缺口只剩：healthy 且无流量的后端不会被探。仍不要用 ping/pong（推理时会堵 event loop）。
+- **Depends on:** 现有 `_health_probe_loop` 与 `/status`。
+
 ### [ ] 动态后端添加/移除
 - **What:** 支持运行时通过 API 或信号添加/移除后端,无需重启代理。
 - **Why:** v1 需要改 `config_proxy.py` 后重启。设备上下线频繁时不方便。
