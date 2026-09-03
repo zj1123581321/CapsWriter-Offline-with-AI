@@ -31,6 +31,7 @@ risk-tier: internal
 
 ## 数据流 (Data Flow)
 详见 [`docs/data-flow.md`](docs/data-flow.md)。
+仓专属项目记忆见 [`docs/project-memory.md`](docs/project-memory.md)。
 
 ## 用户偏好 (User Preferences)
 - **语言**: 中文 (Chinese)，总结、Plan、WalkThrough、注释都要用中文。
